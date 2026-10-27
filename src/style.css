@@ -19,3 +19,28 @@ body {
   @apply bg-stone-50 text-stone-900 antialiased select-none dark:bg-stone-950 dark:text-stone-100;
   font-size: 13px;
 }
+
+/* Datenvisualisierung: Kategorien in fester Reihenfolge (validiert mit dem
+   dataviz-Validator gegen #fff bzw. #1c1917, hell und dunkel). Hell liegen
+   Aqua und Gelb unter 3:1 Kontrast: Werte stehen deshalb immer zusätzlich in
+   Legende und Tabelle. */
+:root {
+  --viz-raw: #2a78d6;
+  --viz-image: #eb6834;
+  --viz-video: #1baf7a;
+  --viz-sidecar: #eda100;
+  --viz-other: #a8a29e;
+  --viz-surface: #ffffff;
+  --viz-track: #f5f5f4;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --viz-raw: #3987e5;
+    --viz-image: #d95926;
+    --viz-video: #199e70;
+    --viz-sidecar: #c98500;
+    --viz-other: #78716c;
+    --viz-surface: #1c1917;
+    --viz-track: #292524;
+  }
+}

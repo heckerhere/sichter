@@ -89,6 +89,37 @@ export interface ScanReport {
 
 export type ScanFinished = { status: "ok"; report: ScanReport } | { status: "error"; message: string };
 
+export interface KindSize {
+  kind: string;
+  count: number;
+  size: number;
+}
+
+export interface FolderRow {
+  id: number;
+  parent_id: number | null;
+  rel_path: string;
+  file_count: number;
+  own_size: number;
+  total_size: number;
+  kinds: KindSize[];
+}
+
+export interface StorageSummary {
+  total_size: number;
+  file_count: number;
+  kinds: KindSize[];
+  raw_pair_jpeg_size: number;
+  raw_pair_count: number;
+}
+
+export interface LargeFile {
+  root_id: number;
+  rel_path: string;
+  size: number;
+  kind: Kind;
+}
+
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
   listRoots: () => invoke<RootInfo[]>("list_roots"),
@@ -100,6 +131,9 @@ export const api = {
   startScan: (rootIds?: number[]) => invoke<void>("start_scan", { rootIds: rootIds ?? null }),
   cancelScan: () => invoke<void>("cancel_scan"),
   scanRunning: () => invoke<boolean>("scan_running"),
+  storageFolders: (rootId: number) => invoke<FolderRow[]>("storage_folders", { rootId }),
+  storageSummary: () => invoke<StorageSummary>("storage_summary"),
+  largestFiles: (limit: number) => invoke<LargeFile[]>("largest_files", { limit }),
 };
 
 export const thumbUrl = (hash: string) => convertFileSrc(hash, "thumb");

@@ -1,5 +1,17 @@
 # Changelog
 
+## Phase 2: Speicherübersicht (2026-10-27)
+
+- **`storage/`:** baut `folder` und `folder_size_by_kind` nach jedem Scan aus dem Index neu auf, ohne den Ordner erneut zu lesen. `own_size` = Dateien direkt im Ordner, `total_size` und `file_count` rekursiv. Nicht erreichbare Roots behalten ihre letzten Werte.
+- **Ansicht „Speicher“:** Gesamtgröße mit gestapeltem Balken und Legende (Größe, Anteil, Anzahl je Kategorie). Ordnerbaum mit Spalten Gesamt / Eigene / Dateien / Anteil am Ordner darüber / Typ-Balken, sortierbar nach Größe, Anzahl oder Name. Treemap und Sunburst mit Zoom per Klick und Brotkrumen-Leiste, Tooltip mit Aufschlüsselung. Top-10-Listen größte Ordner und größte Dateien. Mehrere Roots als Tabs.
+- **„Einsparbar“:** JPEG-Anteil von RAW+JPEG-Paaren als reine Information. Duplikate und Ausschuss kommen mit Phase 3 bzw. 5.
+- **Farben:** fünf Kategorien in fester Reihenfolge (RAW blau, Bilder orange, Video aqua, Sidecars gelb, Sonstiges grau), mit dem dataviz-Validator gegen die echten App-Flächen in hell und dunkel geprüft: alle harten Prüfungen bestanden. Aqua und Gelb liegen hell unter 3:1 Kontrast, deshalb stehen die Werte immer auch in Legende und Tabelle.
+- ECharts wird nur in der Speicheransicht geladen (Startpaket 122 KB statt 593 KB).
+- **Tests:** 74 grün. Ordnersummen stimmen exakt mit dem Dateisystem überein (ohne ignorierte versteckte Dateien). Abgleich mit `du -A -k` mit dokumentierter Toleranz: versteckte Dateien werden herausgerechnet, plus höchstens 1 KiB Rundung je Datei und 4 KiB je Ordner.
+
+### Fix nach Phase 1
+- Gekachelte iPhone-HEICs (Tile Grid) ergaben keine Vorschau: ffmpeg setzt sie über einen eigenen Filtergraphen zusammen, der sich nicht mit `-vf` kombinieren lässt. Standbilder werden jetzt in Rust skaliert. Neue Fixture `misc/kacheln.heic`. Thumbnail-Version eingeführt (Migration 0003), damit Fehlschläge älterer Versionen einmal neu versucht werden.
+
 ## Phase 1: Scan und Index (2026-10-27)
 
 - **Scan-Pipeline** (`scan/`): Crawl und Abgleich mit dem Index → Metadaten → Paarbildung → BLAKE3 → Thumbnails. Jeder Schritt verarbeitet nur, was fehlt. Ein abgebrochener Scan wird beim nächsten Lauf fortgesetzt.

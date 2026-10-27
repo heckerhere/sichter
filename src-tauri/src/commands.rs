@@ -12,6 +12,7 @@ use crate::db::library::{self, GridItem, LibraryStats, OtherFile, RootInfo};
 use crate::fsops::appdata::AppDataDir;
 use crate::meta::exiftool::ExifTool;
 use crate::scan::{Progress, ScanReport, Scanner};
+use crate::storage::{self, FolderRow, LargeFile, Summary};
 use crate::tools::{self, ToolCommand, ToolSource, Tools};
 
 pub struct AppState {
@@ -162,6 +163,21 @@ pub fn list_unhandled(state: State<'_, AppState>) -> CmdResult<Vec<OtherFile>> {
 #[tauri::command]
 pub fn library_stats(state: State<'_, AppState>) -> CmdResult<LibraryStats> {
     library::stats(&*db(&state)?).map_err(err)
+}
+
+#[tauri::command]
+pub fn storage_folders(state: State<'_, AppState>, root_id: i64) -> CmdResult<Vec<FolderRow>> {
+    storage::folders(&*db(&state)?, root_id).map_err(err)
+}
+
+#[tauri::command]
+pub fn storage_summary(state: State<'_, AppState>) -> CmdResult<Summary> {
+    storage::summary(&*db(&state)?).map_err(err)
+}
+
+#[tauri::command]
+pub fn largest_files(state: State<'_, AppState>, limit: i64) -> CmdResult<Vec<LargeFile>> {
+    storage::largest_files(&*db(&state)?, limit.clamp(1, 500)).map_err(err)
 }
 
 #[derive(Clone, Serialize)]

@@ -17,7 +17,13 @@ export const sections = [
 export const router = createRouter({
   history: createWebHashHistory(),
   routes: sections.map((s) => {
-    const component = s.path === "/" ? LibraryView : s.path === "/einstellungen" ? SettingsView : PlaceholderView;
-    return { path: s.path, component, meta: { title: s.name, phase: "phase" in s ? s.phase : undefined } };
+    // Ansichten mit großen Abhängigkeiten (ECharts) werden erst beim Öffnen geladen.
+    const views: Record<string, unknown> = {
+      "/": LibraryView,
+      "/speicher": () => import("./views/StorageView.vue"),
+      "/einstellungen": SettingsView,
+    };
+    const component = views[s.path] ?? PlaceholderView;
+    return { path: s.path, component: component as never, meta: { title: s.name, phase: "phase" in s ? s.phase : undefined } };
   }),
 });

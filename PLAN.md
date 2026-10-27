@@ -261,14 +261,14 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [x] Performance-Test 10.000 Dateien
 
 ### Phase 2: Speicherübersicht
-- [ ] Ordnertabelle mit `own_size`, `total_size`, Dateianzahl
-- [ ] Aggregation nach Dateityp
-- [ ] Ordnerbaum-Ansicht, sortierbar nach Größe
-- [ ] Gestapelter Balken pro Ordner nach Typ
-- [ ] Treemap/Sunburst mit Zoom in Unterordner
-- [ ] Top-Listen größte Ordner und Dateien
-- [ ] Aktualisierung nach Scan und Lauf
-- [ ] Test: Summen gegen Fixture
+- [x] Ordnertabelle mit `own_size`, `total_size`, Dateianzahl
+- [x] Aggregation nach Dateityp
+- [x] Ordnerbaum-Ansicht, sortierbar nach Größe
+- [x] Gestapelter Balken pro Ordner nach Typ
+- [x] Treemap/Sunburst mit Zoom in Unterordner
+- [x] Top-Listen größte Ordner und Dateien
+- [ ] Aktualisierung nach Scan und Lauf — nach Scan erledigt, nach Lauf folgt mit Phase 6
+- [x] Test: Summen gegen Fixture
 
 ### Phase 3: Duplikate
 - [ ] Datei-Duplikatgruppen (Größe, dann Hash)

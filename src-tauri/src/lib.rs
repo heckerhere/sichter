@@ -52,6 +52,9 @@ pub fn run() {
             commands::start_scan,
             commands::cancel_scan,
             commands::scan_running,
+            commands::storage_folders,
+            commands::storage_summary,
+            commands::largest_files,
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Starten der App");

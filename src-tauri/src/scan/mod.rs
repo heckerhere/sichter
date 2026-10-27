@@ -124,6 +124,11 @@ impl Scanner<'_> {
             }
             self.sync_root(root, &mut report, &mut touched)?;
         }
+        // Ordnergrößen hängen nur vom Index ab (Pfad, Größe, Art), deshalb gleich
+        // hier. Nicht erreichbare Roots behalten ihre letzten Werte.
+        for root in roots.iter().filter(|r| r.path.is_dir()) {
+            crate::storage::rebuild(self.conn, root.id)?;
+        }
 
         let steps: [Step; 4] = [Self::read_metadata, Self::regroup, Self::hash_assets, Self::make_thumbnails];
         for step in steps {
