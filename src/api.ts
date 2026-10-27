@@ -111,6 +111,7 @@ export interface StorageSummary {
   kinds: KindSize[];
   raw_pair_jpeg_size: number;
   raw_pair_count: number;
+  duplicate_size: number;
 }
 
 export interface LargeFile {
@@ -118,6 +119,55 @@ export interface LargeFile {
   rel_path: string;
   size: number;
   kind: Kind;
+}
+
+export interface FolderKey {
+  root_id: number;
+  rel_path: string;
+}
+
+export interface DupeFile {
+  asset_id: number;
+  root_id: number;
+  rel_path: string;
+  mtime: number;
+  taken_at: string | null;
+}
+
+export interface FileGroup {
+  hash: string;
+  size: number;
+  thumb: string | null;
+  files: DupeFile[];
+  suggestion_reason: string;
+  keep_asset_id: number | null;
+  redundant_size: number;
+}
+
+export interface FolderInfo {
+  key: FolderKey;
+  file_count: number;
+  size: number;
+}
+
+export interface FolderPair {
+  keep: FolderInfo;
+  other: FolderInfo;
+  suggestion_reason: string;
+}
+
+export interface SubsetPair {
+  subset: FolderInfo;
+  superset: FolderInfo;
+  coverage: number;
+}
+
+export interface DupeAnalysis {
+  file_groups: FileGroup[];
+  identical_folders: FolderPair[];
+  same_content_folders: FolderPair[];
+  subset_folders: SubsetPair[];
+  redundant_size: number;
 }
 
 export const api = {
@@ -133,6 +183,8 @@ export const api = {
   scanRunning: () => invoke<boolean>("scan_running"),
   storageFolders: (rootId: number) => invoke<FolderRow[]>("storage_folders", { rootId }),
   storageSummary: () => invoke<StorageSummary>("storage_summary"),
+  dupesAnalyze: () => invoke<DupeAnalysis>("dupes_analyze"),
+  setDupeChoice: (hash: string, keepAssetId: number | null) => invoke<void>("set_dupe_choice", { hash, keepAssetId }),
   largestFiles: (limit: number) => invoke<LargeFile[]>("largest_files", { limit }),
 };
 

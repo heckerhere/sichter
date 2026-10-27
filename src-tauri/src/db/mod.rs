@@ -14,6 +14,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_init.sql"),
     include_str!("migrations/0002_scan.sql"),
     include_str!("migrations/0003_thumb_version.sql"),
+    include_str!("migrations/0004_dupe_choice.sql"),
 ];
 
 pub fn schema_version() -> u32 {

@@ -55,6 +55,8 @@ pub fn run() {
             commands::storage_folders,
             commands::storage_summary,
             commands::largest_files,
+            commands::dupes_analyze,
+            commands::set_dupe_choice,
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Starten der App");

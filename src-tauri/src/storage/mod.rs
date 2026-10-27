@@ -161,6 +161,8 @@ pub struct Summary {
     /// sind Originale, Sichter schlägt hier nichts zum Löschen vor.
     pub raw_pair_jpeg_size: i64,
     pub raw_pair_count: i64,
+    /// Größe aller redundanten Kopien doppelter Dateien.
+    pub duplicate_size: i64,
 }
 
 pub fn summary(conn: &Connection) -> rusqlite::Result<Summary> {
@@ -179,6 +181,7 @@ pub fn summary(conn: &Connection) -> rusqlite::Result<Summary> {
         kinds,
         raw_pair_jpeg_size,
         raw_pair_count,
+        duplicate_size: crate::dupes::redundant_size(conn)?,
     })
 }
 

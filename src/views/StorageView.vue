@@ -117,7 +117,11 @@ const views = [
           <dl class="mt-3 space-y-3">
             <div>
               <dt class="text-stone-600 dark:text-stone-400">Doppelte Dateien</dt>
-              <dd class="text-stone-400">wird ab der Duplikatsuche berechnet</dd>
+              <dd class="font-medium tabular-nums">{{ formatBytes(summary?.duplicate_size ?? 0) }}</dd>
+              <dd class="text-[11px] text-stone-400">
+                Redundante Kopien in der ganzen Bibliothek ·
+                <RouterLink to="/duplikate" class="underline underline-offset-2">ansehen</RouterLink>
+              </dd>
             </div>
             <div>
               <dt class="text-stone-600 dark:text-stone-400">Als Ausschuss markiert</dt>

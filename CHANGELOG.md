@@ -1,5 +1,15 @@
 # Changelog
 
+## Phase 3: Duplikate (2026-10-27)
+
+- **`dupes/`** (rein lesend): Dateigruppen (zuerst gleiche Größe, dann gleicher BLAKE3-Hash), 1:1 identische Ordner (Hash über sortierte Paare aus relativem Pfad und Datei-Hash, rekursiv), inhaltsgleiche Ordner mit anderen Dateinamen und Teilmengen (Inhalt von A steckt vollständig in B, mit Abdeckungsgrad).
+- **Rauschfilter:** Gemeldet werden nur die obersten Ordnerpaare. Bei Teilmengen nur das größte A und das kleinste B, und keine Teilmenge, deren identischer Zwilling schon in B liegt.
+- Nicht gehashte Dateien (unbekannte Typen) gehen mit Name und Größe in den Ordnervergleich ein.
+- **Vorschlag, welche Kopie bleibt:** Pfade mit „Kopie“, „Backup“, „Downloads“, „Neuer Ordner“ … oder nummerierte Dateinamen („Bild (2).jpg“) werden abgewertet, Datumsordner bevorzugt, sonst gewinnt die älteste Kopie. Jeder Vorschlag kommt mit Begründung und wird nie automatisch übernommen.
+- **Nutzerauswahl** (Migration 0004, Tabelle `dupe_choice`): nur gespeichert, ausgeführt wird erst über den Planer in Phase 6. Asset-IDs mit anderem Inhalt werden abgewiesen.
+- **UI „Duplikate“:** Tabs Dateien / Identische Ordner / Gleicher Inhalt / Teilmengen mit Vorschaubild, Fundorten, Auswahl per Radio-Button, Kennzeichnung „Vorschlag“ und „Deine Wahl“. In der Speicheransicht ist „Einsparbar: doppelte Dateien“ jetzt befüllt.
+- **Tests:** 80 grün, darunter der Akzeptanztest mit 1:1 kopiertem, halb kopiertem und umbenanntem Ordner.
+
 ## Phase 2: Speicherübersicht (2026-10-27)
 
 - **`storage/`:** baut `folder` und `folder_size_by_kind` nach jedem Scan aus dem Index neu auf, ohne den Ordner erneut zu lesen. `own_size` = Dateien direkt im Ordner, `total_size` und `file_count` rekursiv. Nicht erreichbare Roots behalten ihre letzten Werte.

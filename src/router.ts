@@ -21,6 +21,7 @@ export const router = createRouter({
     const views: Record<string, unknown> = {
       "/": LibraryView,
       "/speicher": () => import("./views/StorageView.vue"),
+      "/duplikate": () => import("./views/DuplicatesView.vue"),
       "/einstellungen": SettingsView,
     };
     const component = views[s.path] ?? PlaceholderView;

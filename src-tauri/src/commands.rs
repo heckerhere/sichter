@@ -166,6 +166,17 @@ pub fn library_stats(state: State<'_, AppState>) -> CmdResult<LibraryStats> {
 }
 
 #[tauri::command]
+pub fn dupes_analyze(state: State<'_, AppState>) -> CmdResult<crate::dupes::Analysis> {
+    crate::dupes::analyze_db(&*db(&state)?).map_err(err)
+}
+
+/// Merkt sich nur die Auswahl. Ausgeführt wird erst über einen Plan (Phase 6).
+#[tauri::command]
+pub fn set_dupe_choice(state: State<'_, AppState>, hash: String, keep_asset_id: Option<i64>) -> CmdResult<()> {
+    crate::dupes::set_choice(&*db(&state)?, &hash, keep_asset_id).map_err(|_| "Ungültige Auswahl".to_string())
+}
+
+#[tauri::command]
 pub fn storage_folders(state: State<'_, AppState>, root_id: i64) -> CmdResult<Vec<FolderRow>> {
     storage::folders(&*db(&state)?, root_id).map_err(err)
 }

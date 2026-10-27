@@ -271,13 +271,13 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [x] Test: Summen gegen Fixture
 
 ### Phase 3: Duplikate
-- [ ] Datei-Duplikatgruppen (Größe, dann Hash)
-- [ ] Ordner-Hash und 1:1-Ordnererkennung
-- [ ] Inhaltsgleiche Ordner trotz anderer Dateinamen
-- [ ] Teilmengen-Erkennung
-- [ ] Duplikate-UI mit Fundorten und Vorschlag "welche Kopie bleibt"
-- [ ] Kennzahl "Einsparbar" in Speicheransicht
-- [ ] Test: Fixture mit kopiertem und halb kopiertem Ordner
+- [x] Datei-Duplikatgruppen (Größe, dann Hash)
+- [x] Ordner-Hash und 1:1-Ordnererkennung
+- [x] Inhaltsgleiche Ordner trotz anderer Dateinamen
+- [x] Teilmengen-Erkennung
+- [x] Duplikate-UI mit Fundorten und Vorschlag "welche Kopie bleibt"
+- [x] Kennzahl "Einsparbar" in Speicheransicht
+- [x] Test: Fixture mit kopiertem und halb kopiertem Ordner
 
 ### Phase 4: Events
 - [ ] Clustering nach Zeitlücke (einstellbar)
