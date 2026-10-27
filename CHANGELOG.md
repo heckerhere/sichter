@@ -1,5 +1,17 @@
 # Changelog
 
+## Phase 7: Feinschliff (macOS) und Windows-Vorbereitung (2026-10-27)
+
+- **LGPL-ffmpeg 8.1.3** (`scripts/build-ffmpeg-lgpl.sh`): selbst gebaut ohne GPL-/Nonfree-Teile, ohne externe Bibliotheken, statisch, universal (arm64 + x86_64), nur System-Frameworks. Quelle per SHA-256 gepinnt, das Skript prüft Lizenz und Bibliotheken. Damit ist der offene Punkt aus Phase 0 erledigt.
+- **ffmpeg/ffprobe als Tauri-Sidecars** (`src-tauri/binaries/<tool>-<target>`), damit sie beim Signieren mit signiert werden. In der Entwicklung legt `fetch-sidecars.sh` das System-ffmpeg als Platzhalter ab.
+- **Universal Binary** gebaut und geprüft: App und ffmpeg universell, exiftool aus dem Bundle mit Wächter, keine verwaisten Prozesse nach dem Beenden. Signierung und Notarisierung sind vorbereitet (Hardened Runtime, Umgebungsvariablen in der README), brauchen aber eine Developer-ID.
+- **Build-Fix:** `strip = true` zerstörte beim Bauen mit `--target` das Prozedurmakro `tauri_macros`. Jetzt `strip = "debuginfo"`, nachgestellt und per Gegenprobe bestätigt.
+- **Gesperrte Ordner:** Schalter „sperren“ je Root in der Bibliothek. Gesperrte Roots sind weder Quelle noch Ziel (galt im Planer schon, jetzt bedienbar).
+- **Leere Ordner bereinigen:** Plan „Leere Ordner in den Papierkorb“ unter Einstellungen → Wartung. Leer heißt rekursiv nichts außer `.DS_Store`/`Thumbs.db`. Nur der oberste Ordner eines leeren Teilbaums, nie der Root, nie versteckte oder Paket-Ordner, nie in gesperrten Roots. Direkt vor dem Papierkorb wird erneut geprüft.
+- **Einstellungen:** Dry-Run-Modus, Wartung (leere Ordner, Cache-Größen, Cache leeren), Datenordner im Finder zeigen, Systemstatus.
+- **Windows-Vorbereitung** (ungeprüft, Umsetzung später auf Windows): `scripts/fetch-sidecars.ps1` (exiftool-exe, LGPL-ffmpeg von BtbN mit GPL-Prüfung), `\\?\`-Präfix für lange Pfade bei `MoveFileExW` (Logik getestet), NSIS/MSI-Konfiguration, CI-Matrix macOS + Windows mit Tests und Clippy, manueller Installer-Build im Workflow. Zwei Tests sind plattformneutral gemacht.
+- **Tests:** 133 grün.
+
 ## Phase 6: Planer und sichere Ausführung (2026-10-27)
 
 - **Sicherheitsmodell-Review** vor Beginn, siehe `docs/SICHERHEITSMODELL-REVIEW.md`, nach der Phase aktualisiert.

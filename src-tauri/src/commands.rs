@@ -428,6 +428,54 @@ pub fn plan_dupes(state: State<'_, AppState>, hashes: Vec<String>, to_trash: boo
 }
 
 #[tauri::command]
+pub fn plan_empty_dirs(state: State<'_, AppState>) -> CmdResult<i64> {
+    let planned = plan::plan_empty_dirs(&*db(&state)?);
+    store_plan(&state, RunKind::EmptyDirsToTrash, "Leere Ordner in den Papierkorb", None, &(), planned)
+}
+
+#[tauri::command]
+pub fn set_root_locked(state: State<'_, AppState>, id: i64, locked: bool) -> CmdResult<()> {
+    if !locked && state.run.lock().map_err(err)?.is_some() {
+        return Err("Während ein Lauf aktiv ist, kann keine Sperre aufgehoben werden".into());
+    }
+    library::set_locked(&*db(&state)?, id, locked).map_err(err)
+}
+
+#[derive(Serialize)]
+pub struct CacheInfo {
+    data_dir: String,
+    thumbs: u64,
+    previews: u64,
+    logs: u64,
+}
+
+#[tauri::command]
+pub fn cache_info(state: State<'_, AppState>) -> CmdResult<CacheInfo> {
+    let d = &state.data_dir;
+    Ok(CacheInfo { data_dir: d.path().display().to_string(), thumbs: d.dir_size("thumbs"), previews: d.dir_size("previews"), logs: d.dir_size("logs") })
+}
+
+/// Leert einen Cache. Vorschauen und Thumbnails entstehen bei Bedarf bzw. beim
+/// nächsten Scan neu. Protokolle sind kein Cache und bleiben.
+#[tauri::command]
+pub fn cache_clear(state: State<'_, AppState>, which: String) -> CmdResult<()> {
+    match which.as_str() {
+        "previews" => state.data_dir.clear_dir("previews").map_err(err),
+        "thumbs" => {
+            db(&state)?.execute("DELETE FROM thumb", []).map_err(err)?;
+            state.data_dir.clear_dir("thumbs").map_err(err)
+        }
+        _ => Err("Unbekannter Cache".into()),
+    }
+}
+
+#[tauri::command]
+pub fn open_data_dir(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    app.opener().open_path(state.data_dir.path().to_string_lossy(), None::<&str>).map_err(err)
+}
+
+#[tauri::command]
 pub fn run_discard(state: State<'_, AppState>, run_id: i64) -> CmdResult<()> {
     plan::discard(&*db(&state)?, run_id).map_err(err)
 }

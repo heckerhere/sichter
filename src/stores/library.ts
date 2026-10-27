@@ -73,6 +73,11 @@ export const useLibraryStore = defineStore("library", () => {
     return results.filter((r) => r.error).map((r) => `${r.path}: ${r.error}`);
   }
 
+  async function setLocked(id: number, locked: boolean) {
+    await api.setRootLocked(id, locked);
+    await refresh();
+  }
+
   async function removeRoot(id: number) {
     await api.removeRoot(id);
     await refresh();
@@ -91,5 +96,5 @@ export const useLibraryStore = defineStore("library", () => {
 
   const cancelScan = () => api.cancelScan();
 
-  return { roots, groups, unhandled, stats, scanning, progress, lastReport, error, rootPath, init, refresh, addRoots, removeRoot, startScan, cancelScan };
+  return { roots, groups, unhandled, stats, scanning, progress, lastReport, error, rootPath, init, refresh, addRoots, removeRoot, setLocked, startScan, cancelScan };
 });

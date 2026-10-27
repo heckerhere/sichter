@@ -51,6 +51,12 @@ pub fn add_root(conn: &Connection, path: &Path, app_data: &Path) -> Result<i64, 
     Ok(conn.last_insert_rowid())
 }
 
+/// Gesperrte Roots sind weder Quelle noch Ziel einer Operation (PLAN.md 3.11).
+pub fn set_locked(conn: &Connection, id: i64, locked: bool) -> rusqlite::Result<()> {
+    conn.execute("UPDATE library_root SET locked = ?2 WHERE id = ?1", params![id, locked])?;
+    Ok(())
+}
+
 /// Entfernt einen Root nur aus dem Index. Dateien bleiben unberührt.
 pub fn remove_root(conn: &Connection, id: i64) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM library_root WHERE id = ?1", [id])?;

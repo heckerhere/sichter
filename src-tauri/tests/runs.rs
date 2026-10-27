@@ -541,3 +541,39 @@ fn real_cross_volume_move_and_undo() {
     Command::new("hdiutil").args(["detach", &dev, "-force"]).output().unwrap();
     result.unwrap();
 }
+
+#[test]
+fn empty_folder_cleanup_only_plans_truly_empty_topmost_folders() {
+    let env = Env::with_library(|lib| {
+        std::fs::create_dir_all(lib.join("leer/tief/tiefer")).unwrap();
+        std::fs::write(lib.join("leer/.DS_Store"), b"x").unwrap();
+        std::fs::write(lib.join("leer/tief/Thumbs.db"), b"x").unwrap();
+        std::fs::create_dir_all(lib.join("versteckt")).unwrap();
+        std::fs::write(lib.join("versteckt/.geheim"), b"x").unwrap();
+        std::fs::create_dir_all(lib.join("voll/leer drin")).unwrap();
+        std::fs::write(lib.join("voll/notiz.txt"), b"x").unwrap();
+    });
+    let (ops, _) = plan::plan_empty_dirs(&env.conn).unwrap();
+    let mut dirs: Vec<String> = ops.iter().map(|o| o.src.as_ref().unwrap().strip_prefix(&env.lib).unwrap().display().to_string()).collect();
+    dirs.sort();
+    // "leer" als Ganzes (nicht seine Unterordner), "voll/leer drin" einzeln, "versteckt" nicht (andere versteckte Datei).
+    assert_eq!(dirs, ["leer", "voll/leer drin"]);
+
+    // Wird ein Ordner nach der Planung befüllt, bleibt er stehen (ohne den Papierkorb zu berühren).
+    let summary = plan::Summary::default();
+    let meta = plan::NewRun { kind: RunKind::EmptyDirsToTrash, title: "t", target_root_id: None, dry_run: false };
+    let only_full: Vec<_> = ops.into_iter().filter(|o| o.src.as_ref().unwrap().ends_with("leer drin")).collect();
+    let run = plan::store(&env.conn, &meta, &(), &only_full, &summary).unwrap();
+    std::fs::write(env.lib.join("voll/leer drin/neu.jpg"), b"x").unwrap();
+    let report = env.exec(|ex| journal::execute(&env.conn, run, 1, ex)).unwrap();
+    assert_eq!((report.done, report.failed), (0, 1));
+    assert!(env.lib.join("voll/leer drin/neu.jpg").is_file());
+}
+
+#[test]
+fn locking_a_root_via_library_blocks_plans() {
+    let env = Env::fixtures();
+    library::set_locked(&env.conn, env.root, true).unwrap();
+    assert!(plan::plan_reorganize(&env.conn, &env.params(Mode::Move)).is_err());
+    assert!(plan::plan_empty_dirs(&env.conn).is_err(), "gesperrte Roots werden nicht nach leeren Ordnern durchsucht");
+}

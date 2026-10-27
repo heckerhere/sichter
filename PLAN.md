@@ -236,7 +236,7 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [x] SQLite mit `rusqlite`, WAL-Modus, Migrationssystem
 - [x] Initiales Schema (Abschnitt 5.2)
 - [x] exiftool als Sidecar (macOS) mit `-stay_open`-Prozessverwaltung
-- [ ] ffmpeg und ffprobe als Sidecar (macOS, LGPL-Build) — angebunden, in Dev aus PATH; LGPL-Bundle offen
+- [x] ffmpeg und ffprobe als Sidecar (macOS, LGPL-Build)
 - [x] Modul `fsops` als einziger Schreibpfad
 - [x] CI-Test: kein schreibender `std::fs`-Aufruf außerhalb von `fsops`
 - [ ] Testfixtures-Ordner (JPEG, HEIC, PNG, CR2, CR3, NEF, ARW, DNG, MP4, MOV, Live-Photo-Paar, XMP, Datei ohne EXIF, unbekannte Datei) — alles außer ARW vorhanden
@@ -324,15 +324,15 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [x] Alle Tests aus Abschnitt 9 grün — außer XMP-Export (gehört zu Phase 8)
 
 ### Phase 7: Windows und Feinschliff
-- [ ] Windows-Sidecars (exiftool, ffmpeg, ffprobe)
-- [ ] Lange Pfade und reservierte Namen
-- [ ] Papierkorb unter Windows testen
-- [ ] Testsuite auf Windows grün
-- [ ] Gesperrte Ordner
-- [ ] Leere-Ordner-Bereinigung mit Bestätigung
-- [ ] Einstellungsseite
-- [ ] macOS Universal Binary, Signierung, Notarisierung
-- [ ] Windows-Installer
+- [ ] Windows-Sidecars (exiftool, ffmpeg, ffprobe) — später auf Windows; Skript `scripts/fetch-sidecars.ps1` vorbereitet, ungeprüft
+- [ ] Lange Pfade und reservierte Namen — reservierte Namen erledigt und getestet, `\\?\`-Präfix implementiert; unter Windows noch ungeprüft
+- [ ] Papierkorb unter Windows testen — später auf Windows
+- [ ] Testsuite auf Windows grün — später auf Windows; CI-Job `windows-latest` vorbereitet
+- [x] Gesperrte Ordner
+- [x] Leere-Ordner-Bereinigung mit Bestätigung
+- [x] Einstellungsseite
+- [ ] macOS Universal Binary, Signierung, Notarisierung — Universal Binary gebaut und geprüft; Signierung/Notarisierung braucht eine Developer-ID (README)
+- [ ] Windows-Installer — später auf Windows; NSIS/MSI konfiguriert
 
 ### Phase 8: Optional
 - [ ] XMP-Export (standardmäßig aus) mit Merge und Undo

@@ -84,6 +84,14 @@ async function removeRoot(id: number, path: string) {
         <li v-for="r in lib.roots" :key="r.id" class="group flex items-center gap-3 px-4 py-2">
           <span class="min-w-0 flex-1 truncate font-mono text-xs select-text" :title="r.path">{{ r.path }}</span>
           <span v-if="!r.reachable" class="rounded bg-amber-100 px-1.5 py-px text-[11px] text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">nicht erreichbar</span>
+          <button
+            class="rounded px-1.5 py-px text-[11px]"
+            :class="r.locked ? 'bg-stone-800 text-white dark:bg-stone-200 dark:text-stone-900' : 'text-stone-400 opacity-0 group-hover:opacity-100 hover:text-stone-700 dark:hover:text-stone-200'"
+            :title="r.locked ? 'Gesperrt: Sichter plant hier keine Dateioperationen. Klicken zum Entsperren.' : 'Sperren: keine Dateioperationen in diesem Ordner'"
+            @click="lib.setLocked(r.id, !r.locked)"
+          >
+            {{ r.locked ? "gesperrt" : "sperren" }}
+          </button>
           <span class="text-xs text-stone-500 tabular-nums">{{ formatInt(r.file_count) }} Dateien · {{ formatBytes(r.total_size) }}</span>
           <button
             :disabled="lib.scanning"

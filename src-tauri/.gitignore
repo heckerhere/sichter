@@ -9,3 +9,4 @@
 # Sidecars werden per scripts/fetch-sidecars.sh geladen
 /resources/exiftool/
 /resources/bin/
+/binaries/

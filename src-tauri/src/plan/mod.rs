@@ -43,6 +43,7 @@ pub enum RunKind {
     RejectsToTrash,
     DupesToFolder,
     DupesToTrash,
+    EmptyDirsToTrash,
 }
 
 impl RunKind {
@@ -53,11 +54,12 @@ impl RunKind {
             RunKind::RejectsToTrash => "rejects_to_trash",
             RunKind::DupesToFolder => "dupes_to_folder",
             RunKind::DupesToTrash => "dupes_to_trash",
+            RunKind::EmptyDirsToTrash => "empty_dirs_to_trash",
         }
     }
 
     pub fn uses_trash(self) -> bool {
-        matches!(self, RunKind::RejectsToTrash | RunKind::DupesToTrash)
+        self.as_str().ends_with("_to_trash")
     }
 }
 
@@ -546,6 +548,71 @@ pub fn plan_dupes(conn: &Connection, approved_hashes: &[String], to_trash: bool)
             let root = g.root.clone();
             b.place(Target { group: g, dest_root: &root, dest_dir, names }, Op::Move);
         }
+    }
+    Ok((b.ops, b.summary))
+}
+
+/// Dateien, die einen Ordner nicht "nicht leer" machen (PLAN.md 3.10).
+const IGNORABLE: &[&str] = &[".DS_Store", "Thumbs.db"];
+
+/// Enthält der Ordner (rekursiv) nichts außer `.DS_Store`/`Thumbs.db` und
+/// ebensolchen Unterordnern? Symlinks und alles Unlesbare gelten als Inhalt.
+pub fn is_effectively_empty(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else { return false };
+    for entry in entries {
+        let Ok(entry) = entry else { return false };
+        let Ok(ft) = entry.file_type() else { return false };
+        let name = entry.file_name();
+        if ft.is_dir() {
+            if !is_effectively_empty(&entry.path()) {
+                return false;
+            }
+        } else if !(ft.is_file() && IGNORABLE.iter().any(|i| name == *i)) {
+            return false;
+        }
+    }
+    true
+}
+
+/// Leere Ordner in nicht gesperrten Roots, in den Papierkorb (umkehrbar).
+/// Gemeldet wird jeweils der oberste leere Ordner eines leeren Teilbaums,
+/// nie der Root selbst und nie versteckte Ordner.
+pub fn plan_empty_dirs(conn: &Connection) -> Result<(Vec<PlannedOp>, Summary)> {
+    let roots: Vec<PathBuf> = {
+        let mut stmt = conn.prepare("SELECT path FROM library_root WHERE locked = 0")?;
+        stmt.query_map([], |r| Ok(PathBuf::from(r.get::<_, String>(0)?)))?.collect::<rusqlite::Result<_>>()?
+    };
+    let mut b = Builder::default();
+    for root in roots.iter().filter(|r| r.is_dir()) {
+        let mut walker = walkdir::WalkDir::new(root).min_depth(1).follow_links(false).into_iter();
+        while let Some(Ok(entry)) = walker.next() {
+            if !entry.file_type().is_dir() {
+                continue;
+            }
+            let name = entry.file_name().to_string_lossy();
+            if name.starts_with('.') || crate::scan::crawl::is_package_dir(&name) {
+                walker.skip_current_dir();
+                continue;
+            }
+            if is_effectively_empty(entry.path()) {
+                b.summary.files += 1;
+                b.ops.push(PlannedOp {
+                    op: Op::Trash,
+                    src: Some(entry.path().to_path_buf()),
+                    dst: None,
+                    hash: None,
+                    size: 0,
+                    asset_id: None,
+                    group_id: None,
+                    keep_path: None,
+                });
+                // Unterordner gehören dazu, nicht einzeln aufführen.
+                walker.skip_current_dir();
+            }
+        }
+    }
+    if b.ops.is_empty() {
+        return Err(PlanError::Invalid("Keine leeren Ordner gefunden.".into()));
     }
     Ok((b.ops, b.summary))
 }

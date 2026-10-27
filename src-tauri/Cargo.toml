@@ -49,4 +49,8 @@ codegen-units = 1
 lto = true
 opt-level = 3
 panic = "abort"
-strip = true
+# Nicht `true`: Beim Bauen mit --target (z. B. universal-apple-darwin) entfernt
+# `strip = true` die Symbole des Host-Prozedurmakros tauri_macros, rustc findet
+# es dann nicht mehr ("can't find crate for tauri_macros"). Nachgestellt und
+# per Gegenprobe bestätigt.
+strip = "debuginfo"

@@ -42,6 +42,22 @@ impl AppDataDir {
         Ok(path)
     }
 
+    /// Entfernt einen Unterordner des App-Verzeichnisses vollständig (Cache leeren).
+    /// Das App-Verzeichnis selbst und Pfade außerhalb sind nicht erreichbar.
+    pub fn clear_dir(&self, rel: impl AsRef<Path>) -> io::Result<()> {
+        let path = self.join(rel)?;
+        match fs::remove_dir_all(&path) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => Ok(()),
+        }
+    }
+
+    /// Belegter Platz eines Unterordners in Bytes (nur lesend).
+    pub fn dir_size(&self, rel: impl AsRef<Path>) -> u64 {
+        let Ok(path) = self.join(rel) else { return 0 };
+        walkdir::WalkDir::new(path).into_iter().filter_map(Result::ok).filter_map(|e| e.metadata().ok()).filter(|m| m.is_file()).map(|m| m.len()).sum()
+    }
+
     /// Schreibt eine Datei atomar (temporäre Datei, dann Rename). Innerhalb des
     /// App-Verzeichnisses darf überschrieben werden, es gehört der App.
     pub fn write_file(&self, rel: impl AsRef<Path>, bytes: &[u8]) -> io::Result<PathBuf> {
@@ -91,6 +107,20 @@ mod tests {
         assert!(bytes.iter().all(|b| *b == bytes[0]), "Datei ist ein Gemisch mehrerer Schreiber");
         let leftovers = fs::read_dir(app.join("cache").unwrap()).unwrap().count();
         assert_eq!(leftovers, 1, "keine Temp-Dateien übrig");
+    }
+
+    #[test]
+    fn clear_dir_stays_inside() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = AppDataDir::init(dir.path().join("app")).unwrap();
+        app.write_file("previews/ab/x.jpg", b"123").unwrap();
+        assert_eq!(app.dir_size("previews"), 3);
+        app.clear_dir("previews").unwrap();
+        assert!(!app.join("previews").unwrap().exists());
+        app.clear_dir("previews").unwrap(); // fehlend ist kein Fehler
+        assert!(app.clear_dir("..").is_err());
+        assert!(app.clear_dir("").is_err());
+        assert!(app.path().exists(), "App-Verzeichnis selbst bleibt");
     }
 
     #[test]

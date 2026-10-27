@@ -1,8 +1,21 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      bundle:
+        description: "Installer bauen (macOS universal, Windows NSIS/MSI, unsigniert)"
+        type: boolean
+        default: false
+
 jobs:
   test:
-    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -10,9 +23,52 @@ jobs:
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
-      - run: brew install ffmpeg
-      - run: ./scripts/fetch-sidecars.sh
+      - name: Sidecars (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg && ./scripts/fetch-sidecars.sh
+      - name: Sidecars (Windows)
+        if: runner.os == 'Windows'
+        run: pwsh scripts/fetch-sidecars.ps1
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       # Enthält tests/fsops_guard.rs: kein schreibender std::fs-Aufruf außerhalb von fsops.
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+  bundle:
+    if: github.event_name == 'workflow_dispatch' && inputs.bundle
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            args: --target universal-apple-darwin
+          - os: windows-latest
+            args: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - name: Sidecars (macOS, LGPL-ffmpeg selbst gebaut)
+        if: runner.os == 'macOS'
+        run: ./scripts/fetch-sidecars.sh && ./scripts/build-ffmpeg-lgpl.sh
+      - name: Sidecars (Windows)
+        if: runner.os == 'Windows'
+        run: pwsh scripts/fetch-sidecars.ps1
+      - run: pnpm install --frozen-lockfile
+      # Signierung/Notarisierung: APPLE_CERTIFICATE, APPLE_SIGNING_IDENTITY, APPLE_ID,
+      # APPLE_PASSWORD, APPLE_TEAM_ID als Secrets setzen, dann signiert Tauri automatisch.
+      - run: pnpm tauri build ${{ matrix.args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sichter-${{ runner.os }}
+          path: |
+            src-tauri/target/**/bundle/dmg/*.dmg
+            src-tauri/target/**/bundle/nsis/*.exe
+            src-tauri/target/**/bundle/msi/*.msi

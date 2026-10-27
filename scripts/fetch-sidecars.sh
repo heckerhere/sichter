@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Lädt die exiftool-Distribution nach src-tauri/resources/exiftool (wird mitgebündelt).
-# ffmpeg/ffprobe: in der Entwicklung aus dem PATH. Für Releases gehören LGPL-Builds
-# nach src-tauri/resources/bin/ (siehe README, Phase 7).
+# Außerdem ffmpeg/ffprobe als Tauri-Sidecars (siehe unten).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -27,13 +26,20 @@ else
   echo "exiftool $EXIFTOOL_VERSION installiert"
 fi
 
-mkdir -p src-tauri/resources/bin
+# ffmpeg/ffprobe als Tauri-Sidecars: src-tauri/binaries/<tool>-<target-triple>.
+# Release: scripts/build-ffmpeg-lgpl.sh legt LGPL-Builds an. Entwicklung: Fehlt
+# ein Build, wird das System-ffmpeg als Platzhalter kopiert (die App warnt dann
+# "GPL-Build, nur Entwicklung").
+mkdir -p src-tauri/binaries
+TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
 for tool in ffmpeg ffprobe; do
-  if [[ -x "src-tauri/resources/bin/$tool" ]]; then
-    echo "$tool: gebündelt"
+  target="src-tauri/binaries/$tool-$TRIPLE"
+  if [[ -x "$target" ]]; then
+    echo "$tool: vorhanden ($target)"
   elif command -v "$tool" >/dev/null; then
-    echo "$tool: aus PATH ($(command -v "$tool")) – nur für Entwicklung"
+    cp "$(command -v "$tool")" "$target"
+    echo "$tool: System-Build als Platzhalter für die Entwicklung ($(command -v "$tool"))"
   else
-    echo "$tool: FEHLT (brew install ffmpeg)" >&2
+    echo "$tool: FEHLT (brew install ffmpeg oder scripts/build-ffmpeg-lgpl.sh)" >&2
   fi
 done

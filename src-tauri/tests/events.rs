@@ -35,7 +35,8 @@ const SHOTS: &[Shot] = &[
 
 fn make_library(lib: &Path) {
     let base = std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/library/misc/IMG_20230512_101500.jpg")).unwrap();
-    let exiftool = Path::new(env!("CARGO_MANIFEST_DIR")).join("resources/exiftool/exiftool");
+    // Über die App-Auflösung, damit es mit Perl-Skript und Windows-exe gleich funktioniert.
+    let exiftool = Tools::resolve(None).exiftool.expect("exiftool fehlt");
     for (i, (folder, name, time, gps)) in SHOTS.iter().enumerate() {
         let dir = lib.join(folder);
         std::fs::create_dir_all(&dir).unwrap();
@@ -43,8 +44,8 @@ fn make_library(lib: &Path) {
         let mut bytes = base.clone();
         bytes.extend_from_slice(&(i as u32).to_le_bytes()); // jede Datei einzigartig
         std::fs::write(&path, bytes).unwrap();
-        let mut cmd = std::process::Command::new("perl");
-        cmd.arg(&exiftool).args(["-q", "-overwrite_original", &format!("-DateTimeOriginal={time}")]);
+        let mut cmd = exiftool.command();
+        cmd.args(["-q", "-overwrite_original", &format!("-DateTimeOriginal={time}")]);
         if let Some((lat, lon)) = gps {
             cmd.args([format!("-GPSLatitude={lat}"), "-GPSLatitudeRef=N".into(), format!("-GPSLongitude={lon}"), "-GPSLongitudeRef=E".into()]);
         }

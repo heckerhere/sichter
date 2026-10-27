@@ -22,7 +22,6 @@ use serde::Serialize;
 use crate::fsops::appdata::AppDataDir;
 use crate::fsops::{self, FsOpError, OperationId, PathGuard, TrashToken};
 use crate::hash::{self, FileHash};
-use crate::plan::RunKind;
 
 #[derive(Debug, thiserror::Error)]
 pub enum JournalError {
@@ -207,6 +206,10 @@ fn apply(op: &OpRow, guard: &PathGuard, trash: Option<&TrashToken>) -> Outcome {
             if !exists(src) {
                 return Outcome::AlreadyDone;
             }
+            // Leerer Ordner: direkt vorher erneut prüfen, dass er noch leer ist.
+            if src.is_dir() && !crate::plan::is_effectively_empty(src) {
+                return Outcome::Failed("Ordner ist nicht mehr leer, bleibt stehen".into());
+            }
             if let Some(expected) = &expected {
                 if !matches_hash(src, expected) {
                     return Outcome::Failed("Datei hat sich seit dem Scan verändert, nicht in den Papierkorb gelegt".into());
@@ -351,7 +354,7 @@ pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec
     if confirmed_files != files {
         return Err(JournalError::Invalid(format!("Bestätigung passt nicht zum Plan ({confirmed_files} statt {files} Dateien).")));
     }
-    let uses_trash = [RunKind::RejectsToTrash, RunKind::DupesToTrash].iter().any(|k| k.as_str() == kind);
+    let uses_trash = kind.ends_with("_to_trash");
     let token = uses_trash.then(TrashToken::from_confirmed_plan);
     let guard = guard(conn)?;
     conn.execute("UPDATE run SET status = 'running', dry_run = 0 WHERE id = ?1", [run_id])?;

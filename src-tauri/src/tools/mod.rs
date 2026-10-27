@@ -1,8 +1,10 @@
 //! Auffinden der externen Werkzeuge exiftool, ffmpeg und ffprobe.
 //!
 //! Reihenfolge: Umgebungsvariable (`SICHTER_EXIFTOOL`, `SICHTER_FFMPEG`,
-//! `SICHTER_FFPROBE`), dann gebündelt im Ressourcenverzeichnis der App, in
-//! Debug-Builds zusätzlich `src-tauri/resources`, zuletzt der `PATH`.
+//! `SICHTER_FFPROBE`), dann ffmpeg/ffprobe als Sidecar neben der App-Datei
+//! (so bündelt und signiert Tauri sie), dann gebündelt im
+//! Ressourcenverzeichnis, in Debug-Builds zusätzlich `src-tauri/resources`
+//! und `src-tauri/binaries`, zuletzt der `PATH`.
 //!
 //! exiftool wird als Perl-Distribution (`exiftool` + `lib/`) gebündelt und mit
 //! dem System-Perl gestartet. Unter Windows wird später die exe-Variante
@@ -85,6 +87,17 @@ fn exe_name(name: &str) -> String {
 fn resolve_binary(name: &str, env_var: &str, bundle_dirs: &[PathBuf]) -> Option<ToolCommand> {
     if let Some(path) = std::env::var_os(env_var).map(PathBuf::from).filter(|p| p.is_file()) {
         return Some(ToolCommand::direct(path, ToolSource::Env));
+    }
+    // Sidecar: Tauri legt sie ohne Target-Suffix neben die ausführbare Datei.
+    let beside_exe = std::env::current_exe().ok().and_then(|e| e.parent().map(|d| d.join(exe_name(name)))).filter(|p| p.is_file());
+    if let Some(p) = beside_exe {
+        return Some(ToolCommand::direct(p, ToolSource::Bundled));
+    }
+    if cfg!(debug_assertions) {
+        let dev = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries").join(exe_name(&format!("{name}-{}", env!("SICHTER_TARGET"))));
+        if dev.is_file() {
+            return Some(ToolCommand::direct(dev, ToolSource::Bundled));
+        }
     }
     bundle_dirs
         .iter()
@@ -193,7 +206,10 @@ mod tests {
     fn finds_dev_exiftool_bundle() {
         let tools = Tools::resolve(None);
         let et = tools.exiftool.expect("exiftool nicht gefunden – scripts/fetch-sidecars.sh ausführen");
-        assert!(et.display_path.ends_with(Path::new("exiftool").join("exiftool")) || et.source != ToolSource::Bundled);
+        if et.source == ToolSource::Bundled {
+            let name = et.display_path.file_name().unwrap().to_string_lossy().into_owned();
+            assert!(name == "exiftool" || name == "exiftool.exe", "{name}");
+        }
     }
 
     #[test]

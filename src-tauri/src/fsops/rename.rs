@@ -61,7 +61,9 @@ pub(super) fn rename_noreplace(src: &Path, dst: &Path) -> Result<(), RenameError
     use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, ERROR_NOT_SAME_DEVICE};
     use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
 
-    let wide = |p: &Path| p.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+    // Lange Pfade (über MAX_PATH) brauchen bei direkten Win32-Aufrufen das
+    // Präfix \\?\ (std::fs macht das selbst, MoveFileExW nicht).
+    let wide = |p: &Path| long_path(p).as_os_str().encode_wide().chain(Some(0)).collect::<Vec<u16>>();
     let (src_w, dst_w) = (wide(src), wide(dst));
     // Ohne MOVEFILE_REPLACE_EXISTING und ohne MOVEFILE_COPY_ALLOWED:
     // überschreibt nie und bewegt nicht über Volume-Grenzen.
@@ -78,6 +80,23 @@ pub(super) fn rename_noreplace(src: &Path, dst: &Path) -> Result<(), RenameError
     })
 }
 
+/// `C:\a\b` → `\\?\C:\a\b`, `\\server\share\x` → `\\?\UNC\server\share\x`.
+/// Nur absolute Pfade ab 240 Zeichen; kürzere bleiben unverändert.
+#[cfg(any(windows, test))]
+pub(super) fn long_path(p: &Path) -> std::path::PathBuf {
+    let s = p.to_string_lossy();
+    if s.len() < 240 || s.starts_with(r"\\?\") {
+        return p.to_path_buf();
+    }
+    if let Some(unc) = s.strip_prefix(r"\\") {
+        return format!(r"\\?\UNC\{unc}").into();
+    }
+    if s.as_bytes().get(1) == Some(&b':') {
+        return format!(r"\\?\{s}").into();
+    }
+    p.to_path_buf()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -92,6 +111,15 @@ mod tests {
         assert!(matches!(rename_noreplace(&a, &b), Err(RenameError::AlreadyExists)));
         assert_eq!(std::fs::read(&b).unwrap(), b"b");
         assert!(a.exists());
+    }
+
+    #[test]
+    fn long_windows_paths_get_verbatim_prefix() {
+        let long = format!(r"C:\Fotos\{}", "a".repeat(250));
+        assert!(long_path(Path::new(&long)).to_string_lossy().starts_with(r"\\?\C:\Fotos"));
+        let unc = format!(r"\\nas\fotos\{}", "b".repeat(250));
+        assert!(long_path(Path::new(&unc)).to_string_lossy().starts_with(r"\\?\UNC\nas\fotos"));
+        assert_eq!(long_path(Path::new(r"C:\kurz")), Path::new(r"C:\kurz"));
     }
 
     #[test]
