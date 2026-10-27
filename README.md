@@ -11,6 +11,8 @@ Voraussetzungen: Rust (stable), Node 22, pnpm, Xcode Command Line Tools, Perl (b
 pnpm install
 pnpm tauri dev
 cargo test --manifest-path src-tauri/Cargo.toml
+# Performance-Test (10.000 Dateien):
+cargo test --release --manifest-path src-tauri/Cargo.toml --test perf -- --ignored --nocapture
 ```
 
 ## Sidecars

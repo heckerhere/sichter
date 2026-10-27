@@ -292,6 +292,11 @@ pub(crate) mod test_support {
         std::fs::write(path, bytes).unwrap();
     }
 
+    #[cfg(unix)]
+    pub fn link_dir(target: &Path, link: &Path) {
+        std::os::unix::fs::symlink(target, link).unwrap();
+    }
+
     /// Lässt die nächste Kopie im aktuellen Thread fehlerhaft enden.
     pub fn corrupt_next_copy() {
         CORRUPT_NEXT_COPY.with(|c| c.set(true));

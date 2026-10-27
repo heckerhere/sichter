@@ -67,6 +67,14 @@ impl ExifTool {
 
     /// Führt einen Auftrag aus. Dateinamen werden als UTF-8 übergeben.
     pub fn execute<S: AsRef<str>>(&mut self, args: &[S]) -> Result<ExifOutput, ExifToolError> {
+        let marker = self.send(args)?;
+        let stdout = read_until_marker(&mut self.stdout, &marker)?;
+        let stderr = self.collect_stderr(&marker)?;
+        Ok(ExifOutput { stdout, stderr })
+    }
+
+    /// Schickt einen Auftrag und gibt die Endmarke zurück.
+    fn send<S: AsRef<str>>(&mut self, args: &[S]) -> Result<String, ExifToolError> {
         self.counter += 1;
         let marker = format!("{{ready{}}}", self.counter);
 
@@ -82,8 +90,33 @@ impl ExifTool {
         request.push_str(&format!("-echo4\n{marker}\n-execute{}\n", self.counter));
         self.stdin.write_all(request.as_bytes())?;
         self.stdin.flush()?;
+        Ok(marker)
+    }
 
-        let stdout = read_until_marker(&mut self.stdout, &marker)?;
+    /// Wie [`execute`](Self::execute), liefert stdout aber als Bytes, z. B. für
+    /// `-b -PreviewImage`.
+    pub fn execute_binary<S: AsRef<str>>(&mut self, args: &[S]) -> Result<Vec<u8>, ExifToolError> {
+        let marker = self.send(args)?;
+        let needle = format!("{marker}\n").into_bytes();
+        let mut data = Vec::new();
+        loop {
+            let chunk = self.stdout.fill_buf()?;
+            if chunk.is_empty() {
+                return Err(ExifToolError::Exited);
+            }
+            let len = chunk.len();
+            data.extend_from_slice(chunk);
+            self.stdout.consume(len);
+            if data.ends_with(&needle) {
+                data.truncate(data.len() - needle.len());
+                break;
+            }
+        }
+        self.collect_stderr(&marker)?;
+        Ok(data)
+    }
+
+    fn collect_stderr(&mut self, marker: &str) -> Result<String, ExifToolError> {
         let mut stderr = String::new();
         loop {
             let line = self.stderr_lines.recv().map_err(|_| ExifToolError::Exited)?;
@@ -93,7 +126,7 @@ impl ExifTool {
             stderr.push_str(&line);
             stderr.push('\n');
         }
-        Ok(ExifOutput { stdout, stderr })
+        Ok(stderr)
     }
 
     pub fn version(&mut self) -> Result<String, ExifToolError> {
@@ -188,6 +221,43 @@ mod tests {
         let mut et = exiftool();
         let out = et.execute(&["-j", "-FileName", &fixture("2023-05-12 Geburtstag/IMG_0002.JPG")]).unwrap();
         assert!(out.stdout.contains("IMG_0002.JPG"));
+    }
+
+    #[test]
+    fn extracts_embedded_preview_as_bytes() {
+        let mut et = exiftool();
+        let jpeg = et.execute_binary(&["-b", "-PreviewImage", &fixture("raw/DSCF0001.RAF")]).unwrap();
+        assert_eq!(jpeg.len(), 12167);
+        assert_eq!(&jpeg[..2], &[0xFF, 0xD8]);
+        // Fehlendes Preview: leer, Prozess bleibt synchron.
+        assert!(et.execute_binary(&["-b", "-PreviewImage", &fixture("misc/notizen.txt")]).unwrap().is_empty());
+        assert!(!et.version().unwrap().is_empty());
+    }
+
+    /// Stirbt der Elternprozess, darf kein exiftool zurückbleiben.
+    #[cfg(unix)]
+    #[test]
+    fn exiftool_exits_when_parent_dies() {
+        use std::process::Command;
+        let tool = Tools::resolve(None).exiftool.expect("exiftool fehlt");
+        // Eine Shell startet exiftool im Hintergrund, gibt dessen PID aus und endet.
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(r#""$@" </dev/null >/dev/null 2>&1 & echo $!"#)
+            .arg("sh")
+            .arg(&tool.program)
+            .args(&tool.prefix_args)
+            .args(["-stay_open", "True", "-@", "-"])
+            .output()
+            .unwrap();
+        let pid = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        assert!(!pid.is_empty());
+        let alive = || Command::new("kill").args(["-0", &pid]).status().is_ok_and(|s| s.success());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while alive() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        assert!(!alive(), "exiftool läuft nach Ende des Elternprozesses weiter (PID {pid})");
     }
 
     #[test]

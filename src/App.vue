@@ -2,10 +2,17 @@
 import { onMounted } from "vue";
 import { sections } from "./router";
 import NavIcon from "./components/NavIcon.vue";
+import ScanStatus from "./components/ScanStatus.vue";
 import { useAppStore } from "./stores/app";
+import { useLibraryStore } from "./stores/library";
+import { formatInt } from "./format";
 
 const app = useAppStore();
-onMounted(app.load);
+const lib = useLibraryStore();
+onMounted(() => {
+  app.load();
+  lib.init();
+});
 </script>
 
 <template>
@@ -24,17 +31,20 @@ onMounted(app.load);
       </RouterLink>
     </nav>
 
-    <main class="overflow-y-auto">
+    <main class="min-h-0 overflow-y-auto">
       <RouterView />
     </main>
 
     <footer class="col-span-2 flex items-center gap-4 border-t border-stone-200 bg-stone-100/70 px-4 py-1.5 text-xs text-stone-500 dark:border-stone-800 dark:bg-stone-900/60 dark:text-stone-400">
-      <span>0 Dateien</span>
-      <span>Keine offenen Pläne</span>
-      <span>Noch kein Lauf</span>
+      <span class="tabular-nums">{{ formatInt(lib.stats?.files ?? 0) }} Dateien</span>
+      <ScanStatus />
+      <template v-if="!lib.scanning">
+        <span>Keine offenen Pläne</span>
+        <span>Noch kein Lauf</span>
+      </template>
       <span
         v-if="app.dryRun"
-        class="ml-auto rounded bg-amber-100 px-2 py-0.5 font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+        class="ml-auto shrink-0 rounded bg-amber-100 px-2 py-0.5 font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
         title="Pläne werden nur simuliert, es wird keine Datei verändert."
       >
         Dry-Run aktiv

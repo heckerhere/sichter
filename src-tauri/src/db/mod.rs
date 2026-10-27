@@ -8,7 +8,12 @@ use std::path::Path;
 
 use rusqlite::{Connection, OpenFlags};
 
-const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_init.sql")];
+pub mod library;
+
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/0001_init.sql"),
+    include_str!("migrations/0002_scan.sql"),
+];
 
 pub fn schema_version() -> u32 {
     MIGRATIONS.len() as u32

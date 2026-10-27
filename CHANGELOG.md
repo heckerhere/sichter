@@ -1,5 +1,26 @@
 # Changelog
 
+## Phase 1: Scan und Index (2026-10-27)
+
+- **Scan-Pipeline** (`scan/`): Crawl und Abgleich mit dem Index → Metadaten → Paarbildung → BLAKE3 → Thumbnails. Jeder Schritt verarbeitet nur, was fehlt. Ein abgebrochener Scan wird beim nächsten Lauf fortgesetzt.
+- **Crawler:** folgt keinen Symlinks, ignoriert versteckte Dateien und Systemdateien (`.DS_Store`, `._*`, `Thumbs.db`, `@eaDir`, `$RECYCLE.BIN` …).
+- **Neu, Sicherheit:** Pakete fremder Mediatheken werden übersprungen und im Bericht genannt (`*.photoslibrary`, `*.lrdata`, `*.cocatalog`, `*.fcpbundle` …). Dateien daraus später zu verschieben würde diese Mediatheken beschädigen.
+- **Neu, Sicherheit:** Ein nicht erreichbarer Root (Platte abgezogen) und nicht lesbare Unterordner zählen nicht als „gelöscht“. Index, Bewertungen und Events bleiben erhalten.
+- **Dateityp:** Die Endung entscheidet, ob eine Datei unterstützt wird, die Magic Bytes korrigieren die Art (z. B. HEIC mit Endung `.jpg`, markiert als `ext_mismatch`). Inhalt, der zu keinem Medium passt, wird als `other` geführt und nie bewegt.
+- **Paarbildung:** RAW+JPEG, Sidecars (`IMG_1.xmp` und `IMG_1.CR2.xmp`), Live Photos über den Basisnamen und zusätzlich über die Apple-ContentIdentifier. Vergleich NFC-normalisiert und ohne Groß-/Kleinschreibung. Gruppen-IDs bleiben über Rescans stabil, damit Bewertungen erhalten bleiben.
+- **Metadaten:** ein exiftool-Prozess, Abfrage in 100er-Batches. Datumspriorität: Fotos `DateTimeOriginal` (+`OffsetTimeOriginal`), Videos QuickTime `CreationDate` (mit Zeitzone) vor `CreateDate` (markiert als `quicktime_utc` für die Korrektur in Phase 4). Fallback auf das Datum im Dateinamen (IMG_/VID_/PXL_/WhatsApp/Screenshot/Dropbox-Schema), danach mtime. Beides wird als „Datum unsicher“ angezeigt. ffprobe liefert Dauer, Codec, fps und Auflösung.
+- **BLAKE3:** 4 parallele Leser. Dateien mit mehrfach vorkommender Größe kommen zuerst dran, weil nur sie Duplikate sein können. Gehasht wird trotzdem alles außer `other`, weil `fsops` und der Thumbnail-Cache den Hash brauchen.
+- **Thumbnails:** WebP, 512 px, im App-Datenverzeichnis, Schlüssel ist der Datei-Hash. Quellen: JPEG/PNG/TIFF/WebP direkt mit EXIF-Ausrichtung, RAW über das eingebettete Preview (exiftool-Prozesspool, Binärausgabe über stdout), HEIC und Video per ffmpeg über stdout (Video bei 10 % der Laufzeit). Fehlschläge werden gemerkt und nicht bei jedem Scan neu versucht.
+- **`thumb://`-Protokoll:** liefert ausschließlich Dateien aus dem Thumbnail-Cache, nur anhand eines gültigen 64-stelligen Hashs.
+- **UI:** Ordner hinzufügen (mehrere), Roots mit Dateianzahl und Größe, „nicht erreichbar“-Hinweis, Entfernen nur aus dem Index mit Rückfrage. Scan-Fortschritt pro Phase mit Abbruch, Scan-Bericht, virtualisiertes Grid mit Filtern (Alle, Fotos, RAW, Videos, Datum unsicher), Badges (RAW+JPEG, Live, XMP, Videodauer) und eine Liste nicht unterstützter Dateien. Systemstatus zusätzlich unter Einstellungen.
+- **Migration 0002:** `meta.content_id`, `meta.quicktime_utc`, `asset.ext_mismatch`, `asset.meta_done`, Tabelle `thumb`.
+- **Tests:** 65 grün, plus ein Performance-Test. Abgedeckt: Quellordner unverändert (Größe, mtime, Hash jeder Datei inkl. versteckter), Gruppen, Datumsquellen, inkrementeller Rescan, Bewertungen überleben Rescan und Teiländerungen, nicht erreichbarer Root, nicht lesbarer Ordner, Abbruch und Fortsetzung.
+- **Performance** (Apple Silicon, Release, `cargo test --release --test perf -- --ignored --nocapture`): Erstscan von 10.000 JPEGs inkl. Metadaten, Hashes und Thumbnails in 18,7 s, inkrementeller Rescan in 77 ms.
+
+### Offen
+- Die UI-Abläufe (Ordnerdialog, Fortschritt, Grid) sind kompiliert und typgeprüft, aber nicht per Klick getestet: In dieser Umgebung fehlt die Berechtigung für Bildschirmaufnahmen.
+- Die RAW-Fixtures CR2, CR3, NEF und DNG sind Stubs ohne eingebettetes Preview. Der Preview-Weg ist mit RAF und RW2 getestet. Echte Kamera-RAWs sollten noch geprüft werden (zusammen mit ARW, siehe Phase 0).
+
 ## Phase 0: Gerüst (2026-10-27)
 
 - Tauri 2 + Vue 3 + TypeScript + Vite + Tailwind 4 + Pinia + Vue Router. Linke Navigation mit allen Bereichen aus PLAN.md, Abschnitt 7, Statusleiste mit Dry-Run-Hinweis.

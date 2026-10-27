@@ -243,22 +243,22 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [x] Startbildschirm zeigt Sidecar-Versionen
 
 ### Phase 1: Scan und Index
-- [ ] Ordnerauswahl (mehrere Quell-Roots)
-- [ ] Rekursiver Crawler mit Ignorierliste für Systemdateien
-- [ ] Dateityp-Erkennung über Endung und Magic Bytes
-- [ ] Paarbildung: RAW+JPEG, Sidecars, Live Photos
-- [ ] Metadaten Fotos/RAW via exiftool
-- [ ] Metadaten Videos via exiftool + ffprobe
-- [ ] Datums-Fallback (Dateiname, mtime) mit Markierung "Datum unsicher"
-- [ ] BLAKE3-Hashing parallel mit Größen-Vorfilter
-- [ ] Inkrementeller Scan (Größe + mtime)
-- [ ] RAW-Preview-Extraktion
-- [ ] Video-Vorschaubild via ffmpeg
-- [ ] Thumbnail-Cache (WebP, Hash als Schlüssel)
-- [ ] Fortschrittsanzeige und Abbruch
-- [ ] Bibliotheks-Grid (virtualisiert) mit Filter nach Typ
-- [ ] Test: Scan verändert Quellordner nicht
-- [ ] Performance-Test 10.000 Dateien
+- [x] Ordnerauswahl (mehrere Quell-Roots)
+- [x] Rekursiver Crawler mit Ignorierliste für Systemdateien
+- [x] Dateityp-Erkennung über Endung und Magic Bytes
+- [x] Paarbildung: RAW+JPEG, Sidecars, Live Photos
+- [x] Metadaten Fotos/RAW via exiftool
+- [x] Metadaten Videos via exiftool + ffprobe
+- [x] Datums-Fallback (Dateiname, mtime) mit Markierung "Datum unsicher"
+- [x] BLAKE3-Hashing parallel mit Größen-Vorfilter
+- [x] Inkrementeller Scan (Größe + mtime)
+- [x] RAW-Preview-Extraktion
+- [x] Video-Vorschaubild via ffmpeg
+- [x] Thumbnail-Cache (WebP, Hash als Schlüssel)
+- [x] Fortschrittsanzeige und Abbruch
+- [x] Bibliotheks-Grid (virtualisiert) mit Filter nach Typ
+- [x] Test: Scan verändert Quellordner nicht
+- [x] Performance-Test 10.000 Dateien
 
 ### Phase 2: Speicherübersicht
 - [ ] Ordnertabelle mit `own_size`, `total_size`, Dateianzahl

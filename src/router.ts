@@ -1,6 +1,7 @@
 import { createRouter, createWebHashHistory } from "vue-router";
 import LibraryView from "./views/LibraryView.vue";
 import PlaceholderView from "./views/PlaceholderView.vue";
+import SettingsView from "./views/SettingsView.vue";
 
 export const sections = [
   { path: "/", name: "Bibliothek", icon: "library" },
@@ -15,9 +16,8 @@ export const sections = [
 
 export const router = createRouter({
   history: createWebHashHistory(),
-  routes: sections.map((s) =>
-    s.path === "/"
-      ? { path: s.path, component: LibraryView, meta: { title: s.name } }
-      : { path: s.path, component: PlaceholderView, meta: { title: s.name, phase: s.phase } },
-  ),
+  routes: sections.map((s) => {
+    const component = s.path === "/" ? LibraryView : s.path === "/einstellungen" ? SettingsView : PlaceholderView;
+    return { path: s.path, component, meta: { title: s.name, phase: "phase" in s ? s.phase : undefined } };
+  }),
 });

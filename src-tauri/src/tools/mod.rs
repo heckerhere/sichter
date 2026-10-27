@@ -108,19 +108,40 @@ fn resolve_exiftool(bundle_dirs: &[PathBuf]) -> Option<ToolCommand> {
             return Some(exiftool_command(script, ToolSource::Bundled));
         }
     }
-    find_in_path(&exe_name("exiftool")).map(|p| ToolCommand::direct(p, ToolSource::Path))
+    find_in_path(&exe_name("exiftool")).map(|p| exiftool_command(p, ToolSource::Path))
 }
+
+/// Wächter für exiftool im `-stay_open`-Modus: exiftool beendet sich bei
+/// geschlossenem stdin nicht von selbst. Stirbt die App hart (Absturz,
+/// Neustart), würde es als verwaister Prozess weiterlaufen. Der Wächter startet
+/// exiftool als Kindprozess und beendet es, sobald die App nicht mehr lebt
+/// (anderer Elternprozess bzw. PID 1, auch wenn die App schon vor dem ersten
+/// Blick verschwunden war).
+const EXIFTOOL_WATCHDOG: &str = r#"use POSIX ":sys_wait_h";
+my $script = shift;
+my $pid = fork();
+die "fork: $!" unless defined $pid;
+if (!$pid) { exec($^X, $script, @ARGV) or exit 127; }
+my $parent = getppid();
+while (1) {
+    my $done = waitpid($pid, WNOHANG);
+    exit($? >> 8) if $done == $pid;
+    my $ppid = getppid();
+    if ($ppid != $parent || $ppid == 1) { kill "TERM", $pid; waitpid($pid, 0); exit 1; }
+    select(undef, undef, undef, 0.5);
+}"#;
 
 /// Perl-Skripte explizit über Perl starten, damit Ausführungsrechte und
 /// Shebang im Bundle keine Rolle spielen.
 fn exiftool_command(path: PathBuf, source: ToolSource) -> ToolCommand {
     if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe")) {
+        // Windows: Absicherung über Job-Objekt folgt in Phase 7.
         return ToolCommand::direct(path, source);
     }
     let perl = find_in_path(&exe_name("perl")).unwrap_or_else(|| PathBuf::from("perl"));
     ToolCommand {
         program: perl,
-        prefix_args: vec![path.clone().into_os_string()],
+        prefix_args: vec!["-e".into(), EXIFTOOL_WATCHDOG.into(), path.clone().into_os_string()],
         display_path: path,
         source,
     }
