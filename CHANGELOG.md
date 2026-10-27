@@ -1,5 +1,15 @@
 # Changelog
 
+## Phase 4: Events (2026-10-27)
+
+- **Clustering** (`events/cluster.rs`): neues Event bei mehr als 4 h Pause oder mehr als 30 km Sprung zur letzten Aufnahme mit GPS, beides einstellbar. Mehrtägig: Folgegruppe am nächsten Tag nahe am GPS-Schwerpunkt wird angehängt. Innerhalb eines Tages wird nur verbunden, wenn die Gruppe schon mehrere Tage umfasst, also eine Reise ist. Ohne GPS keine Vermutung über einen Aufenthalt.
+- **Regeln:** Events leben nur in der Datenbank. Nach jedem Scan werden nur noch nicht zugeordnete Aufnahmen einsortiert (in ein zeitlich passendes unbestätigtes Event oder ein neues). „Neu berechnen“ ersetzt nur unbestätigte Events, mit Rückfrage. Bestätigte Events verändert keine Automatik. Zusammenführen, Teilen und Verschieben heben die Bestätigung auf. Leere Events verschwinden.
+- **Titelvorschlag:** häufigster aussagekräftiger Ordnername ohne Datumspräfix. DCIM, 100CANON, „Bilder“, „Camera“ usw. zählen nicht.
+- **Video-Zeitzone:** QuickTime-`CreateDate` ohne Zeitzone wird pro Kamera als UTC oder Ortszeit gelesen. Standard: Handys (Apple, Google, Samsung …) UTC, Kameras Ortszeit. In der UI umstellbar. Ein Hinweis „Zeitzone prüfen“ erscheint, wenn ein Video über 1 h neben den Fotos derselben Kamera liegt, die andere Deutung aber passt. Umrechnung in die Zeitzone dieses Rechners. Auf Reisen in eine andere Zeitzone kann das eine Stunde danebenliegen, Hinweis bleibt dann sichtbar.
+- **UI „Events“:** Timeline nach Monat, Karten mit vier gleichmäßig verteilten Vorschaubildern, Titel direkt editierbar mit „Vorschlag übernehmen“, Zeitraum, Anzahl, „n Tage“, „unsicheres Datum“, Zeitzonen-Hinweis, Bestätigen. Mehrfachauswahl zum Zusammenführen. Detailansicht mit „Ab hier teilen“, „Verschieben nach vorheriges / nächstes / neues Event“ und Notiz. Einstellungen für Pause, Entfernung und Mehrtägigkeit, Kamera-Zeitzonen.
+- **Migration 0005:** `setting`, `camera_tz`, `event.suggested_title`.
+- **Tests:** 89 grün. Akzeptanztest „drei Tage und eine Reise“ mit echten JPEGs (EXIF-Datum, GPS): Geburtstag / spätes Abendfoto / Hamburg / GPS-Sprung nach Berlin / viertägige Kroatienreise. Danach Zusammenführen, Umbenennen, Bestätigen, Teilen, Verschieben, Neuberechnen ohne Verlust bestätigter Events, Rescan, Quellordner unverändert.
+
 ## Phase 3: Duplikate (2026-10-27)
 
 - **`dupes/`** (rein lesend): Dateigruppen (zuerst gleiche Größe, dann gleicher BLAKE3-Hash), 1:1 identische Ordner (Hash über sortierte Paare aus relativem Pfad und Datei-Hash, rekursiv), inhaltsgleiche Ordner mit anderen Dateinamen und Teilmengen (Inhalt von A steckt vollständig in B, mit Abdeckungsgrad).

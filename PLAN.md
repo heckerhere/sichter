@@ -280,15 +280,15 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [x] Test: Fixture mit kopiertem und halb kopiertem Ordner
 
 ### Phase 4: Events
-- [ ] Clustering nach Zeitlücke (einstellbar)
-- [ ] Clustering nach GPS-Distanz (einstellbar)
-- [ ] Mehrtägige Events zusammenfassen
-- [ ] Video-Zeitzonenkorrektur pro Kameramodell
-- [ ] Timeline-UI mit Event-Karten
-- [ ] Event umbenennen, zusammenführen, teilen, Bilder verschieben
-- [ ] Event bestätigen
-- [ ] Bisheriger Ordnername als Titelvorschlag
-- [ ] Test: Fixture mit drei Tagen und Reise
+- [x] Clustering nach Zeitlücke (einstellbar)
+- [x] Clustering nach GPS-Distanz (einstellbar)
+- [x] Mehrtägige Events zusammenfassen
+- [x] Video-Zeitzonenkorrektur pro Kameramodell
+- [x] Timeline-UI mit Event-Karten
+- [x] Event umbenennen, zusammenführen, teilen, Bilder verschieben
+- [x] Event bestätigen
+- [x] Bisheriger Ordnername als Titelvorschlag
+- [x] Test: Fixture mit drei Tagen und Reise
 
 ### Phase 5: Sichten
 - [ ] Vollbildansicht Fotos

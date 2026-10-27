@@ -57,6 +57,7 @@ pub struct ScanReport {
     pub hashed: u64,
     pub thumbs: u64,
     pub thumbs_failed: u64,
+    pub events_assigned: u64,
     pub skipped_packages: Vec<String>,
     /// Roots, die nicht erreichbar waren. Ihr Index bleibt unverändert.
     pub unreachable_roots: Vec<String>,
@@ -137,6 +138,9 @@ impl Scanner<'_> {
             }
             step(self, &mut report, &touched)?;
         }
+        // Neue Aufnahmen in Events einsortieren. Bestehende Events und
+        // Bearbeitungen bleiben unverändert.
+        report.events_assigned = crate::events::assign_new(self.conn)? as u64;
 
         report.cancelled = self.cancelled();
         report.duration_ms = started.elapsed().as_millis() as u64;

@@ -165,6 +165,79 @@ pub fn library_stats(state: State<'_, AppState>) -> CmdResult<LibraryStats> {
     library::stats(&*db(&state)?).map_err(err)
 }
 
+// --- Events: alle Änderungen nur in der Datenbank ---------------------------
+
+use crate::events::{self, CameraTz, EventCard, GroupRow, Settings as EventSettings, TzMode};
+
+#[derive(Serialize)]
+pub struct EventsOverview {
+    events: Vec<EventCard>,
+    unassigned: i64,
+    settings: EventSettings,
+    cameras: Vec<CameraTz>,
+}
+
+#[tauri::command]
+pub fn events_overview(state: State<'_, AppState>) -> CmdResult<EventsOverview> {
+    let db = db(&state)?;
+    Ok(EventsOverview {
+        events: events::list_events(&db).map_err(err)?,
+        unassigned: events::unassigned_count(&db).map_err(err)?,
+        settings: events::load_settings(&db).map_err(err)?,
+        cameras: events::cameras_with_ambiguous_video(&db).map_err(err)?,
+    })
+}
+
+#[tauri::command]
+pub fn event_items(state: State<'_, AppState>, event_id: i64) -> CmdResult<Vec<GroupRow>> {
+    events::event_items(&*db(&state)?, event_id).map_err(err)
+}
+
+#[tauri::command]
+pub fn events_save_settings(state: State<'_, AppState>, settings: EventSettings) -> CmdResult<()> {
+    events::save_settings(&*db(&state)?, &settings).map_err(err)
+}
+
+#[tauri::command]
+pub fn events_recluster(state: State<'_, AppState>) -> CmdResult<usize> {
+    events::recluster(&*db(&state)?).map_err(err)
+}
+
+#[tauri::command]
+pub fn event_rename(state: State<'_, AppState>, event_id: i64, title: String) -> CmdResult<()> {
+    events::rename(&*db(&state)?, event_id, &title).map_err(err)
+}
+
+#[tauri::command]
+pub fn event_set_notes(state: State<'_, AppState>, event_id: i64, notes: String) -> CmdResult<()> {
+    events::set_notes(&*db(&state)?, event_id, &notes).map_err(err)
+}
+
+#[tauri::command]
+pub fn event_confirm(state: State<'_, AppState>, event_id: i64, confirmed: bool) -> CmdResult<()> {
+    events::set_confirmed(&*db(&state)?, event_id, confirmed).map_err(err)
+}
+
+#[tauri::command]
+pub fn events_merge(state: State<'_, AppState>, event_ids: Vec<i64>) -> CmdResult<Option<i64>> {
+    events::merge(&*db(&state)?, &event_ids).map_err(err)
+}
+
+#[tauri::command]
+pub fn event_split(state: State<'_, AppState>, event_id: i64, group_id: i64) -> CmdResult<Option<i64>> {
+    events::split(&*db(&state)?, event_id, group_id).map_err(err)
+}
+
+#[tauri::command]
+pub fn events_move(state: State<'_, AppState>, group_ids: Vec<i64>, target: Option<i64>) -> CmdResult<i64> {
+    events::move_groups(&*db(&state)?, &group_ids, target).map_err(err)
+}
+
+#[tauri::command]
+pub fn camera_tz_set(state: State<'_, AppState>, camera: String, mode: Option<TzMode>) -> CmdResult<()> {
+    events::set_camera_mode(&*db(&state)?, &camera, mode).map_err(err)
+}
+
 #[tauri::command]
 pub fn dupes_analyze(state: State<'_, AppState>) -> CmdResult<crate::dupes::Analysis> {
     crate::dupes::analyze_db(&*db(&state)?).map_err(err)

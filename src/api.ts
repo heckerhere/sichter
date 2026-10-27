@@ -170,6 +170,57 @@ export interface DupeAnalysis {
   redundant_size: number;
 }
 
+export interface EventSettings {
+  gap_hours: number;
+  gps_km: number;
+  merge_multiday: boolean;
+}
+
+export type TzMode = "utc" | "local";
+
+export interface CameraTz {
+  camera: string;
+  video_count: number;
+  mode: TzMode;
+  is_default: boolean;
+}
+
+export interface EventCard {
+  id: number;
+  title: string;
+  suggested_title: string;
+  date_start: string | null;
+  date_end: string | null;
+  confirmed: boolean;
+  notes: string;
+  count: number;
+  video_count: number;
+  uncertain_count: number;
+  thumbs: string[];
+  tz_hint_cameras: string[];
+}
+
+export interface EventsOverview {
+  events: EventCard[];
+  unassigned: number;
+  settings: EventSettings;
+  cameras: CameraTz[];
+}
+
+/** Aufnahme in einem Event; `time` ist bereits zeitzonenkorrigiert. */
+export interface EventItem {
+  group_id: number;
+  event_id: number | null;
+  root_id: number;
+  rel_path: string;
+  kind: Kind;
+  kinds: Kind[];
+  thumb: string | null;
+  time: string | null;
+  date_source: DateSource | null;
+  duration_s: number | null;
+}
+
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
   listRoots: () => invoke<RootInfo[]>("list_roots"),
@@ -183,6 +234,17 @@ export const api = {
   scanRunning: () => invoke<boolean>("scan_running"),
   storageFolders: (rootId: number) => invoke<FolderRow[]>("storage_folders", { rootId }),
   storageSummary: () => invoke<StorageSummary>("storage_summary"),
+  eventsOverview: () => invoke<EventsOverview>("events_overview"),
+  eventItems: (eventId: number) => invoke<EventItem[]>("event_items", { eventId }),
+  eventsSaveSettings: (settings: EventSettings) => invoke<void>("events_save_settings", { settings }),
+  eventsRecluster: () => invoke<number>("events_recluster"),
+  eventRename: (eventId: number, title: string) => invoke<void>("event_rename", { eventId, title }),
+  eventSetNotes: (eventId: number, notes: string) => invoke<void>("event_set_notes", { eventId, notes }),
+  eventConfirm: (eventId: number, confirmed: boolean) => invoke<void>("event_confirm", { eventId, confirmed }),
+  eventsMerge: (eventIds: number[]) => invoke<number | null>("events_merge", { eventIds }),
+  eventSplit: (eventId: number, groupId: number) => invoke<number | null>("event_split", { eventId, groupId }),
+  eventsMove: (groupIds: number[], target: number | null) => invoke<number>("events_move", { groupIds, target }),
+  cameraTzSet: (camera: string, mode: TzMode | null) => invoke<void>("camera_tz_set", { camera, mode }),
   dupesAnalyze: () => invoke<DupeAnalysis>("dupes_analyze"),
   setDupeChoice: (hash: string, keepAssetId: number | null) => invoke<void>("set_dupe_choice", { hash, keepAssetId }),
   largestFiles: (limit: number) => invoke<LargeFile[]>("largest_files", { limit }),

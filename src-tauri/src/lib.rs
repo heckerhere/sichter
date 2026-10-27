@@ -57,6 +57,17 @@ pub fn run() {
             commands::largest_files,
             commands::dupes_analyze,
             commands::set_dupe_choice,
+            commands::events_overview,
+            commands::event_items,
+            commands::events_save_settings,
+            commands::events_recluster,
+            commands::event_rename,
+            commands::event_set_notes,
+            commands::event_confirm,
+            commands::events_merge,
+            commands::event_split,
+            commands::events_move,
+            commands::camera_tz_set,
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Starten der App");
