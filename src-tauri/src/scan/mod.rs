@@ -472,10 +472,11 @@ impl Scanner<'_> {
                  FROM asset a JOIN library_root r ON r.id = a.root_id
                  LEFT JOIN meta m ON m.asset_id = a.id LEFT JOIN video_meta v ON v.asset_id = a.id
                  LEFT JOIN thumb t ON t.hash = a.hash
-                 WHERE a.hash IS NOT NULL AND t.hash IS NULL AND a.kind NOT IN ('sidecar', 'other')
+                 WHERE a.hash IS NOT NULL AND a.kind NOT IN ('sidecar', 'other')
+                   AND (t.hash IS NULL OR (t.status != 'ok' AND t.version < ?1))
                  GROUP BY a.hash",
             )?;
-            stmt.query_map([], |r| {
+            stmt.query_map([thumbs::VERSION], |r| {
                 Ok(Pending {
                     hash: r.get(0)?,
                     path: from_rel_path(Path::new(&r.get::<_, String>(1)?), &r.get::<_, String>(2)?),
@@ -528,22 +529,22 @@ impl Scanner<'_> {
 
             let tx = self.conn.transaction()?;
             {
-                let mut set = tx.prepare("INSERT OR REPLACE INTO thumb (hash, status, error) VALUES (?1, ?2, ?3)")?;
+                let mut set = tx.prepare("INSERT OR REPLACE INTO thumb (hash, status, error, version) VALUES (?1, ?2, ?3, ?4)")?;
                 for (hash, result) in results {
                     match result {
                         Ok(Some(webp)) => match thumbs::store(self.app, hash, &webp) {
                             Ok(_) => {
-                                set.execute(params![hash, "ok", None::<String>])?;
+                                set.execute(params![hash, "ok", None::<String>, thumbs::VERSION])?;
                                 report.thumbs += 1;
                             }
                             Err(e) => report.errors.push((hash.to_string(), e.to_string())),
                         },
                         Ok(None) => {
-                            set.execute(params![hash, "none", None::<String>])?;
+                            set.execute(params![hash, "none", None::<String>, thumbs::VERSION])?;
                         }
                         Err(e) if e == "abgebrochen" => {}
                         Err(e) => {
-                            set.execute(params![hash, "failed", e])?;
+                            set.execute(params![hash, "failed", e, thumbs::VERSION])?;
                             report.thumbs_failed += 1;
                         }
                     }

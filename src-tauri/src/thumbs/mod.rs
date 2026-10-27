@@ -19,6 +19,11 @@ use crate::meta::exiftool::ExifTool;
 use crate::scan::kind::Kind;
 use crate::tools::ToolCommand;
 
+/// Version des Erzeugers. Erhöhen, wenn neue Quellen oder Fehlerbehebungen
+/// hinzukommen: Fehlschläge älterer Versionen werden dann erneut versucht.
+/// 2: Kachel-HEICs (iPhone) werden ohne ffmpeg-Skalierfilter dekodiert.
+pub const VERSION: i64 = 2;
+
 /// Längste Kante in Pixeln. Reicht für Grid-Kacheln auf Retina-Displays.
 pub const MAX_EDGE: u32 = 512;
 const WEBP_QUALITY: f32 = 78.0;
@@ -143,6 +148,8 @@ mod tests {
             ("misc/scan.tif", Kind::Tiff, true),
             ("misc/sticker.webp", Kind::Webp, true),
             ("iPhone/IMG_0100.HEIC", Kind::Heic, true),
+            // Kachel-HEIC wie vom iPhone (Tile Grid).
+            ("misc/kacheln.heic", Kind::Heic, true),
             ("video/clip.mp4", Kind::Video, true),
             ("raw/DSCF0001.RAF", Kind::Raw, true),
             ("raw/P1000001.RW2", Kind::Raw, true),

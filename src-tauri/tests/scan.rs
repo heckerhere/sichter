@@ -91,8 +91,8 @@ fn indexes_fixtures_with_groups_dates_hashes_and_thumbs() {
     let mut env = Env::new();
     let report = env.scan();
     // .DS_Store wird ignoriert, alles andere indexiert.
-    assert_eq!(report.files_total, 19);
-    assert_eq!(report.new, 19);
+    assert_eq!(report.files_total, 20);
+    assert_eq!(report.new, 20);
 
     // RAW + JPEG + XMP als eine Einheit, RAW primär.
     let g = env.group("2023-05-12 Geburtstag/IMG_0001.CR2").unwrap();
@@ -137,14 +137,14 @@ fn indexes_fixtures_with_groups_dates_hashes_and_thumbs() {
     let unhashed: i64 = env.one("SELECT count(*) FROM asset WHERE hash IS NULL AND kind != 'other'");
     assert_eq!(unhashed, 0);
     let thumbs_ok: i64 = env.one("SELECT count(*) FROM thumb WHERE status = 'ok'");
-    // JPEG x3, PNG, TIFF, WebP, HEIC, MP4, MOV x2, RAF, RW2 = 12; NEF/DNG/CR2/CR3-Stubs ohne Preview.
-    assert_eq!(thumbs_ok, 12, "{report:?}");
+    // JPEG x3, PNG, TIFF, WebP, HEIC x2, MP4, MOV x2, RAF, RW2 = 13; NEF/DNG/CR2/CR3-Stubs ohne Preview.
+    assert_eq!(thumbs_ok, 13, "{report:?}");
     let any: String = env.one("SELECT hash FROM thumb WHERE status = 'ok' LIMIT 1");
     assert!(env.app.join(format!("thumbs/{}/{any}.webp", &any[..2])).unwrap().is_file());
 
     let grid = library::list_groups(&env.conn).unwrap();
-    // Geburtstag 2, iPhone 1, misc 4, raw 5, video 2.
-    assert_eq!(grid.len(), 14);
+    // Geburtstag 2, iPhone 1, misc 5, raw 5, video 2.
+    assert_eq!(grid.len(), 15);
     let raw_jpeg = grid.iter().find(|i| i.group_id == g).unwrap();
     assert!(raw_jpeg.thumb.is_some(), "RAW+JPEG-Gruppe nutzt das JPEG-Thumbnail");
 }
@@ -156,7 +156,7 @@ fn incremental_rescan_only_touches_changes() {
 
     let second = env.scan();
     assert_eq!((second.new, second.changed, second.removed, second.hashed, second.thumbs), (0, 0, 0, 0, 0));
-    assert_eq!(second.unchanged, 19);
+    assert_eq!(second.unchanged, 20);
 
     // Datei ändern: genau eine Datei neu einlesen und hashen.
     let path = env.library.join("2023-05-12 Geburtstag/IMG_0002.JPG");
@@ -228,7 +228,7 @@ fn cancelled_scan_resumes() {
         .unwrap();
     assert!(report.cancelled);
     let full = env.scan();
-    assert_eq!(full.new, 19);
+    assert_eq!(full.new, 20);
 }
 
 #[test]
@@ -253,4 +253,19 @@ fn reports_every_phase_in_order_with_totals() {
         let last = events.iter().map(|p| p.done).max().unwrap();
         assert_eq!(last, events[0].total, "{phase}");
     }
+}
+
+#[test]
+fn retries_failed_thumbnails_from_older_versions() {
+    let mut env = Env::new();
+    env.scan();
+    // Fehlschlag einer älteren Version simulieren (wie die Kachel-HEICs vor Version 2).
+    env.conn
+        .execute("UPDATE thumb SET status = 'failed', error = 'alt', version = 1 WHERE hash = (SELECT hash FROM asset WHERE rel_path = 'misc/kacheln.heic')", [])
+        .unwrap();
+    let report = env.scan();
+    assert_eq!(report.thumbs, 1);
+    // Fehlschläge der aktuellen Version werden dagegen nicht ständig wiederholt.
+    env.conn.execute("UPDATE thumb SET status = 'failed', version = ?1 WHERE status = 'ok'", [sichter_lib::thumbs::VERSION]).unwrap();
+    assert_eq!(env.scan().thumbs, 0);
 }

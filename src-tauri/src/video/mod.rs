@@ -59,17 +59,23 @@ pub fn parse_probe(json: &Value) -> VideoMeta {
 /// Ein Einzelbild als JPEG über stdout. `at_s` ist die Position im Video,
 /// bei Standbildern (HEIC) `None`. ffmpeg dreht dabei automatisch gemäß
 /// Rotationsangabe.
+///
+/// Standbilder werden nicht von ffmpeg skaliert: iPhone-HEICs sind Kachel-Bilder
+/// (Tile Grid), die ffmpeg über einen eigenen Filtergraphen zusammensetzt, und
+/// der lässt sich nicht mit `-vf` kombinieren. Verkleinert wird danach in Rust.
 pub fn extract_frame_jpeg(ffmpeg: &ToolCommand, path: &Path, at_s: Option<f64>, max_edge: u32) -> Result<Vec<u8>, String> {
     let mut cmd = ffmpeg.command();
     cmd.args(["-v", "error", "-nostdin"]);
     if let Some(at) = at_s {
         cmd.args(["-ss", &format!("{at:.3}")]);
     }
-    let scale = format!("scale='min({max_edge},iw)':'min({max_edge},ih)':force_original_aspect_ratio=decrease");
+    cmd.arg("-i").arg(path).args(["-frames:v", "1"]);
+    if at_s.is_some() {
+        let scale = format!("scale='min({max_edge},iw)':'min({max_edge},ih)':force_original_aspect_ratio=decrease");
+        cmd.args(["-vf", &scale]);
+    }
     let output = cmd
-        .arg("-i")
-        .arg(path)
-        .args(["-frames:v", "1", "-vf", &scale, "-f", "image2pipe", "-c:v", "mjpeg", "-q:v", "3", "-"])
+        .args(["-f", "image2pipe", "-c:v", "mjpeg", "-q:v", "3", "-"])
         .stdin(Stdio::null())
         .output()
         .map_err(|e| e.to_string())?;

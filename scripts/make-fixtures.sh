@@ -28,6 +28,10 @@ $ET -q -overwrite_original "-GPSLatitude=52.52" -GPSLatitudeRef=N "-GPSLongitude
 ffmpeg -loglevel error -f lavfi -i "color=c=orange:s=320x240" -frames:v 1 "$OUT/misc/screenshot.png"
 cp "$SRC/RIFF.webp" "$OUT/misc/sticker.webp"
 sips -s format tiff "$OUT/misc/screenshot.png" --out "$OUT/misc/scan.tif" >/dev/null
+# Gekacheltes HEIC (Tile Grid) wie bei iPhone-Fotos: sips kachelt ab ca. 2048 px.
+ffmpeg -loglevel error -f lavfi -i "testsrc2=s=2048x1536" -frames:v 1 "$OUT/misc/big.png"
+sips -s format heic -s formatOptions 40 "$OUT/misc/big.png" --out "$OUT/misc/kacheln.heic" >/dev/null
+rm "$OUT/misc/big.png"
 
 # RAW-Formate (Metadaten-Stubs aus der exiftool-Testsuite)
 cp "$SRC/CanonRaw.cr3" "$OUT/raw/CR3_0001.CR3"
