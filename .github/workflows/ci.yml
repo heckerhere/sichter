@@ -1,0 +1,18 @@
+name: CI
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: pnpm/action-setup@v4
+        with: { version: 10 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: brew install ffmpeg
+      - run: ./scripts/fetch-sidecars.sh
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      # Enthält tests/fsops_guard.rs: kein schreibender std::fs-Aufruf außerhalb von fsops.
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
