@@ -26,6 +26,11 @@ else
   echo "exiftool $EXIFTOOL_VERSION installiert"
 fi
 
+# Ortsdaten (GeoNames) für Titelvorschläge.
+if [[ ! -f src-tauri/resources/geo/cities1000.tsv ]]; then
+  ./scripts/fetch-geonames.sh
+fi
+
 # ffmpeg/ffprobe als Tauri-Sidecars: src-tauri/binaries/<tool>-<target-triple>.
 # Release: scripts/build-ffmpeg-lgpl.sh legt LGPL-Builds an. Entwicklung: Fehlt
 # ein Build, wird das System-ffmpeg als Platzhalter kopiert (die App warnt dann

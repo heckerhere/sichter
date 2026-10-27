@@ -1,5 +1,14 @@
 # Changelog
 
+## Phase 8: Optionale Erweiterungen (2026-10-27)
+
+- **Serien (Bursts):** dHash (64 Bit) je Thumbnail, berechnet beim Scan aus dem Cache. Aufeinanderfolgende Fotos mit höchstens 2 s Abstand und höchstens 12 Bit Unterschied bilden eine Serie, Videos nie. Beim Sichten: Kennzeichnung „Serie 2/5“, Markierung im Filmstreifen, Taste **B** zeigt die Serie nebeneinander (bis 4).
+- **Ortsnamen offline:** GeoNames `cities1000` (CC BY 4.0, ca. 162.000 Orte ohne Stadtteile und historische Orte) über `scripts/fetch-geonames.sh`, mitgebündelt. Ortswahl nach Einwohnerzahl gegen Abstand (eine Zehnerpotenz wiegt 5 km auf, höchstens 30 km), damit im Zentrum von Split „Split“ herauskommt und nicht ein Vorort. Titelvorschlag: aussagekräftiger Ordnername, sonst Ortsname. Event-Karten zeigen den Ort mit deutschem Ländernamen. Neuer Vorlagen-Platzhalter `{Ort}`.
+- **XMP-Export** (standardmäßig aus, Schalter in den Einstellungen): Sterne → `xmp:Rating` 1–5, Ausschuss → `-1` (Lightroom/Bridge-Konvention). „Behalten“ hat in XMP keine Entsprechung. Nur für Gruppen mit RAW, nie in die Bilddatei. Bestehende Sidecars der Gruppe (`IMG_1.xmp` oder `IMG_1.CR2.xmp`) werden über exiftool gemergt (Ausgabe auf stdout, die Datei selbst schreibt nur `fsops`), das Original vorher im App-Verzeichnis gesichert. Neue Sidecars aus einer minimalen Vorlage. Läuft über Plan, Probelauf und Bestätigung. Undo stellt das Original Byte für Byte wieder her bzw. entfernt nur selbst angelegte, unveränderte Sidecars. Wurde ein Sidecar nach Planung oder Export verändert (z. B. durch Lightroom), wird es nicht angefasst.
+- **`fsops`:** `write_sidecar` ist die einzige Funktion, die eine bestehende Datei ersetzt, und nur bei `.xmp` mit exakt erwartetem Inhalt. `remove_own_sidecar` entfernt nur eigenen, unveränderten Inhalt.
+- **Migration 0007:** Tabelle `phash`. `operation` wird neu aufgebaut, um die Operation `xmp` zu erlauben. Bestehende Läufe bleiben erhalten (Test).
+- **Tests:** 142 grün, darunter der Pflichttest „XMP-Export: bestehende Sidecars werden gemergt, Undo stellt Originalinhalt wieder her“.
+
 ## Phase 7: Feinschliff (macOS) und Windows-Vorbereitung (2026-10-27)
 
 - **LGPL-ffmpeg 8.1.3** (`scripts/build-ffmpeg-lgpl.sh`): selbst gebaut ohne GPL-/Nonfree-Teile, ohne externe Bibliotheken, statisch, universal (arm64 + x86_64), nur System-Frameworks. Quelle per SHA-256 gepinnt, das Skript prüft Lizenz und Bibliotheken. Damit ist der offene Punkt aus Phase 0 erledigt.
@@ -10,7 +19,7 @@
 - **Leere Ordner bereinigen:** Plan „Leere Ordner in den Papierkorb“ unter Einstellungen → Wartung. Leer heißt rekursiv nichts außer `.DS_Store`/`Thumbs.db`. Nur der oberste Ordner eines leeren Teilbaums, nie der Root, nie versteckte oder Paket-Ordner, nie in gesperrten Roots. Direkt vor dem Papierkorb wird erneut geprüft.
 - **Einstellungen:** Dry-Run-Modus, Wartung (leere Ordner, Cache-Größen, Cache leeren), Datenordner im Finder zeigen, Systemstatus.
 - **Windows-Vorbereitung** (ungeprüft, Umsetzung später auf Windows): `scripts/fetch-sidecars.ps1` (exiftool-exe, LGPL-ffmpeg von BtbN mit GPL-Prüfung), `\\?\`-Präfix für lange Pfade bei `MoveFileExW` (Logik getestet), NSIS/MSI-Konfiguration, CI-Matrix macOS + Windows mit Tests und Clippy, manueller Installer-Build im Workflow. Zwei Tests sind plattformneutral gemacht.
-- **Tests:** 133 grün.
+- **Tests:** 131 grün.
 
 ## Phase 6: Planer und sichere Ausführung (2026-10-27)
 

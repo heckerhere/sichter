@@ -43,6 +43,7 @@ pub fn run() {
             // und können fortgesetzt oder rückgängig gemacht werden.
             journal::recover_interrupted(&db)?;
             let tools = tools::Tools::resolve(app.path().resource_dir().ok().as_deref());
+            events::places::init(app.path().resource_dir().ok().as_deref());
             let previews = thumbs::preview::PreviewService::new(data_dir.clone(), tools.clone());
             app.manage(AppState {
                 previews,
@@ -97,6 +98,9 @@ pub fn run() {
             commands::run_discard,
             commands::plan_empty_dirs,
             commands::set_root_locked,
+            commands::plan_xmp_export,
+            commands::xmp_export_enabled,
+            commands::set_xmp_export_enabled,
             commands::cache_info,
             commands::cache_clear,
             commands::open_data_dir,

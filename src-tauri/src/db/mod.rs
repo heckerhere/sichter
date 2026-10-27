@@ -18,6 +18,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0004_dupe_choice.sql"),
     include_str!("migrations/0005_events.sql"),
     include_str!("migrations/0006_runs.sql"),
+    include_str!("migrations/0007_phase8.sql"),
 ];
 
 pub fn schema_version() -> u32 {
@@ -143,6 +144,30 @@ mod tests {
             [],
         );
         assert!(bad_kind.is_err(), "CHECK auf kind muss greifen");
+    }
+
+    #[test]
+    fn migration_7_keeps_existing_operations() {
+        // Datenbank auf Stand 6 mit einem Lauf, dann auf 7 heben.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("t.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            configure(&conn).unwrap();
+            for (i, sql) in MIGRATIONS.iter().take(6).enumerate() {
+                conn.execute_batch(sql).unwrap();
+                conn.pragma_update(None, "user_version", (i + 1) as u32).unwrap();
+            }
+            conn.execute("INSERT INTO run (kind) VALUES ('reorganize')", []).unwrap();
+            conn.execute("INSERT INTO operation (run_id, seq, op, src, dst, keep_path) VALUES (1, 0, 'move', 'a', 'b', 'k')", []).unwrap();
+        }
+        let conn = open(&path).unwrap();
+        let row: (String, String, String) = conn.query_row("SELECT op, dst, keep_path FROM operation", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        assert_eq!(row, ("move".into(), "b".into(), "k".into()));
+        conn.execute("INSERT INTO operation (run_id, seq, op) VALUES (1, 1, 'xmp')", []).unwrap();
+        // Löschen des Laufs entfernt seine Operationen weiterhin (Fremdschlüssel intakt).
+        conn.execute("DELETE FROM run", []).unwrap();
+        assert_eq!(conn.query_row("SELECT count(*) FROM operation", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
     }
 
     #[test]

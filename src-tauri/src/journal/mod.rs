@@ -47,6 +47,8 @@ struct OpRow {
     group_id: Option<i64>,
     keep_path: Option<PathBuf>,
     status: String,
+    /// Zusatzdaten (XMP: Bewertung, geschriebener Hash, ob gesichert).
+    note: serde_json::Value,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -83,11 +85,21 @@ pub struct Exec<'a> {
     /// Nur für Tests: nach so vielen Dateioperationen "abstürzen", bevor das
     /// Journal aktualisiert wird.
     pub simulate_crash_after: Option<usize>,
+    /// exiftool für den XMP-Export (Merge bestehender Sidecars).
+    pub exiftool: Option<&'a crate::tools::ToolCommand>,
+}
+
+/// Was eine einzelne Operation zum Ausführen braucht.
+struct Ctx<'a> {
+    guard: &'a PathGuard,
+    trash: Option<&'a TrashToken>,
+    app: &'a AppDataDir,
+    exiftool: Option<&'a crate::tools::ToolCommand>,
 }
 
 fn load_ops(conn: &Connection, run_id: i64) -> rusqlite::Result<Vec<OpRow>> {
     let mut stmt = conn.prepare(
-        "SELECT id, seq, op, src, dst, hash, asset_id, group_id, keep_path, status FROM operation WHERE run_id = ?1 ORDER BY seq",
+        "SELECT id, seq, op, src, dst, hash, asset_id, group_id, keep_path, status, note FROM operation WHERE run_id = ?1 ORDER BY seq",
     )?;
     stmt.query_map([run_id], |r| {
         let path = |i: usize| -> rusqlite::Result<Option<PathBuf>> { Ok(r.get::<_, Option<String>>(i)?.map(PathBuf::from)) };
@@ -101,6 +113,7 @@ fn load_ops(conn: &Connection, run_id: i64) -> rusqlite::Result<Vec<OpRow>> {
             group_id: r.get(7)?,
             keep_path: path(8)?,
             status: r.get(9)?,
+            note: r.get::<_, Option<String>>(10)?.and_then(|n| serde_json::from_str(&n).ok()).unwrap_or_default(),
         })
     })?
     .collect()
@@ -158,7 +171,37 @@ fn describe(e: &FsOpError) -> String {
 }
 
 /// Führt eine einzelne Operation aus, nach Prüfung des Ist-Zustands.
-fn apply(op: &OpRow, guard: &PathGuard, trash: Option<&TrashToken>) -> Outcome {
+fn backup_path(op: &OpRow) -> PathBuf {
+    PathBuf::from("xmp-backup").join(format!("op-{}.xmp", op.id))
+}
+
+/// XMP-Export: bestehendes Sidecar sichern und mergen, sonst neu anlegen.
+/// Gibt den Hash des geschriebenen Inhalts zurück (für Undo).
+fn apply_xmp(op: &OpRow, ctx: &Ctx) -> std::result::Result<(FileHash, bool), String> {
+    let id = OperationId::from_journal(op.id);
+    let path = op.dst.as_ref().ok_or("Pfad fehlt")?;
+    let rating = op.note["rating"].as_i64().ok_or("Bewertung fehlt")?;
+    let planned = op.hash.as_deref().and_then(FileHash::from_hex);
+    let bytes = match (&planned, exists(path)) {
+        (Some(expected), true) => {
+            if !matches_hash(path, expected) {
+                return Err("XMP wurde seit der Planung verändert, nichts geschrieben".into());
+            }
+            // Original vor dem Merge sichern (Undo stellt es Byte für Byte wieder her).
+            let original = std::fs::read(path).map_err(|e| e.to_string())?;
+            ctx.app.write_file(backup_path(op), &original).map_err(|e| e.to_string())?;
+            crate::meta::xmp::merge(ctx.exiftool.ok_or("exiftool nicht verfügbar")?, path, rating)?
+        }
+        (Some(_), false) => return Err("XMP fehlt inzwischen".into()),
+        (None, true) => return Err("Inzwischen liegt dort eine XMP-Datei, nichts überschrieben".into()),
+        (None, false) => crate::meta::xmp::new_sidecar(rating),
+    };
+    fsops::write_sidecar(id, path, &bytes, planned.as_ref(), ctx.guard).map_err(|e| describe(&e))?;
+    Ok((hash::hash_file(path).map_err(|e| e.to_string())?, planned.is_some()))
+}
+
+fn apply(op: &OpRow, ctx: &Ctx) -> Outcome {
+    let (guard, trash) = (ctx.guard, ctx.trash);
     let id = OperationId::from_journal(op.id);
     let expected = op.hash.as_deref().and_then(FileHash::from_hex);
     match op.op.as_str() {
@@ -224,12 +267,26 @@ fn apply(op: &OpRow, guard: &PathGuard, trash: Option<&TrashToken>) -> Outcome {
                 Err(e) => Outcome::Failed(describe(&e)),
             }
         }
+        "xmp" => {
+            // Wiederaufnahme: Schon geschrieben, wenn der Inhalt dem Geschriebenen entspricht.
+            let written = op.note["written"].as_str().and_then(FileHash::from_hex);
+            if let (Some(w), Some(p)) = (&written, &op.dst)
+                && matches_hash(p, w)
+            {
+                return Outcome::AlreadyDone;
+            }
+            match apply_xmp(op, ctx) {
+                Ok(_) => Outcome::Done,
+                Err(e) => Outcome::Failed(e),
+            }
+        }
         other => Outcome::Failed(format!("Unbekannte Operation {other}")),
     }
 }
 
 /// Macht eine erledigte Operation rückgängig (für Undo und Gruppen-Rollback).
-fn revert(op: &OpRow, guard: &PathGuard, trash: Option<&TrashToken>) -> std::result::Result<bool, String> {
+fn revert(op: &OpRow, ctx: &Ctx) -> std::result::Result<bool, String> {
+    let (guard, trash) = (ctx.guard, ctx.trash);
     let id = OperationId::from_journal(op.id);
     let expected = op.hash.as_deref().and_then(FileHash::from_hex);
     match op.op.as_str() {
@@ -260,8 +317,41 @@ fn revert(op: &OpRow, guard: &PathGuard, trash: Option<&TrashToken>) -> std::res
             fsops::trash(id, dst, token, guard).map(|_| true).map_err(|e| describe(&e))
         }
         "trash" => Err("Liegt im Papierkorb: bitte dort „Zurücklegen“ wählen".into()),
+        "xmp" => {
+            let path = op.dst.as_ref().ok_or("Pfad fehlt")?;
+            let written = op.note["written"].as_str().and_then(FileHash::from_hex).ok_or("Geschriebener Stand unbekannt")?;
+            if !exists(path) {
+                return Err("XMP fehlt".into());
+            }
+            if op.note["backup"].as_bool() == Some(true) {
+                let original = std::fs::read(ctx.app.join(backup_path(op)).map_err(|e| e.to_string())?).map_err(|e| format!("Sicherung fehlt: {e}"))?;
+                fsops::write_sidecar(id, path, &original, Some(&written), guard).map(|_| true).map_err(|e| describe(&e))
+            } else {
+                fsops::remove_own_sidecar(id, path, &written, guard).map(|_| true).map_err(|e| describe(&e))
+            }
+        }
         other => Err(format!("Unbekannte Operation {other}")),
     }
+}
+
+/// Merkt sich nach dem XMP-Schreiben den neuen Inhalt und ob gesichert wurde.
+fn record_xmp(conn: &Connection, op: &OpRow, app: &AppDataDir) -> rusqlite::Result<()> {
+    let Some(path) = &op.dst else { return Ok(()) };
+    let mut note = op.note.clone();
+    if let Ok(h) = hash::hash_file(path) {
+        note["written"] = serde_json::Value::String(h.to_hex());
+    }
+    note["backup"] = serde_json::Value::Bool(app.join(backup_path(op)).is_ok_and(|p| p.is_file()));
+    conn.execute("UPDATE operation SET note = ?2 WHERE id = ?1", params![op.id, note.to_string()])?;
+    Ok(())
+}
+
+/// Operation mit aktuellem Journal-Stand (z. B. nach record_xmp) neu laden.
+fn reload(conn: &Connection, op: &OpRow) -> rusqlite::Result<OpRow> {
+    let note: Option<String> = conn.query_row("SELECT note FROM operation WHERE id = ?1", [op.id], |r| r.get(0))?;
+    let mut fresh = op.clone();
+    fresh.note = note.and_then(|n| serde_json::from_str(&n).ok()).unwrap_or_default();
+    Ok(fresh)
 }
 
 fn after_success(conn: &Connection, op: &OpRow) -> rusqlite::Result<()> {
@@ -327,6 +417,14 @@ pub fn dry_run(conn: &Connection, run_id: i64, ex: &Exec) -> Result<RunReport> {
                     op.keep_path.as_ref().filter(|k| !exists(k)).map(|k| format!("Bleibende Kopie fehlt: {}", k.display()))
                 }
             }
+            "xmp" => {
+                let dst = op.dst.as_ref().expect("Ziel gesetzt");
+                match op.hash.as_deref().and_then(FileHash::from_hex) {
+                    Some(h) if !matches_hash(dst, &h) => Some("XMP wurde seit der Planung verändert".into()),
+                    None if exists(dst) => Some("Inzwischen liegt dort eine XMP-Datei".into()),
+                    _ => guard.check(dst).err().map(|e| e.to_string()),
+                }
+            }
             _ => Some("Unbekannte Operation".into()),
         };
         match problem {
@@ -383,7 +481,8 @@ pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec
         let mut failure: Option<(usize, String)> = None;
         for (k, op) in chunk.iter().enumerate() {
             (ex.progress)(RunProgress { run_id, done: report.done + report.failed, total, current: Some(label(op)), paused: false });
-            match apply(op, &guard, token.as_ref()) {
+            let ctx = Ctx { guard: &guard, trash: token.as_ref(), app: ex.app, exiftool: ex.exiftool };
+            match apply(op, &ctx) {
                 Outcome::Done | Outcome::AlreadyDone => {
                     fs_ops += 1;
                     if ex.simulate_crash_after == Some(fs_ops) {
@@ -392,6 +491,9 @@ pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec
                     let tx = conn.unchecked_transaction()?;
                     set_status(&tx, op, "done", None)?;
                     after_success(&tx, op)?;
+                    if op.op == "xmp" {
+                        record_xmp(&tx, op, ex.app)?;
+                    }
                     tx.commit()?;
                     done_in_chunk.push(op);
                     if op.op != "mkdir" {
@@ -415,7 +517,8 @@ pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec
                 report.skipped += 1;
             }
             for op in done_in_chunk.iter().rev() {
-                match revert(op, &guard, None) {
+                let ctx = Ctx { guard: &guard, trash: None, app: ex.app, exiftool: ex.exiftool };
+                match revert(&reload(conn, op)?, &ctx) {
                     Ok(_) => {
                         let tx = conn.unchecked_transaction()?;
                         set_status(&tx, op, "undone", Some("Gruppe zurückgesetzt, weil ein anderes Mitglied fehlschlug"))?;
@@ -465,7 +568,8 @@ pub fn undo(conn: &Connection, run_id: i64, ex: &Exec) -> Result<RunReport> {
             report.manual_restore.push(op.src.as_ref().map(|p| p.display().to_string()).unwrap_or_default());
             continue;
         }
-        match revert(op, &guard, Some(&token)) {
+        let ctx = Ctx { guard: &guard, trash: Some(&token), app: ex.app, exiftool: ex.exiftool };
+        match revert(op, &ctx) {
             Ok(_) => {
                 let tx = conn.unchecked_transaction()?;
                 set_status(&tx, op, "undone", None)?;

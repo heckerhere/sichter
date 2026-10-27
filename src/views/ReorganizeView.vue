@@ -9,7 +9,7 @@ import { useLibraryStore } from "../stores/library";
 const lib = useLibraryStore();
 const router = useRouter();
 
-const PLACEHOLDERS = ["{Jahr}", "{Monat}", "{Datum}", "{Anlass}", "{Kamera}", "{Original-Dateiname}"];
+const PLACEHOLDERS = ["{Jahr}", "{Monat}", "{Datum}", "{Anlass}", "{Ort}", "{Kamera}", "{Original-Dateiname}"];
 const DEFAULT = "{Jahr}/{Datum} {Anlass}/{Original-Dateiname}";
 
 const usable = computed(() => lib.roots.filter((r) => !r.locked && r.reachable));

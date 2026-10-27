@@ -91,7 +91,8 @@ fn three_days_and_a_trip_end_to_end() {
         summary,
         vec![
             (3, "Geburtstag", Some("2023-05-12T15:00:00")),
-            (1, "", Some("2023-05-12T23:45:00")),
+            // DCIM sagt nichts aus: Ortsname aus GPS, sofern die GeoNames-Daten vorhanden sind.
+            (1, if events::places::get().is_some() { "Berlin" } else { "" }, Some("2023-05-12T23:45:00")),
             (2, "Hamburg", Some("2023-06-03T10:00:00")),
             (1, "Hamburg", Some("2023-06-03T13:00:00")),
             (6, "Kroatien", Some("2023-07-12T18:00:00")),

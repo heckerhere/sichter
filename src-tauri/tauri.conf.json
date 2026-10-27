@@ -39,7 +39,8 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "resources/exiftool/": "exiftool/"
+      "resources/exiftool/": "exiftool/",
+      "resources/geo/": "geo/"
     },
     "category": "Photography",
     "shortDescription": "Fotos und Videos sicher sortieren",

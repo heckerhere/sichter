@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { thumbUrl, type EventCard } from "../api";
-import { dayCount, formatInt, formatRange } from "../format";
+import { countryName, dayCount, formatInt, formatRange } from "../format";
 
 const props = defineProps<{ event: EventCard; selected: boolean }>();
 const emit = defineEmits<{
@@ -48,6 +48,7 @@ function commit() {
         <span class="tabular-nums">{{ formatRange(event.date_start, event.date_end) }}</span>
         <span class="tabular-nums">{{ formatInt(event.count) }} Aufnahmen<template v-if="event.video_count">, davon {{ event.video_count }} Videos</template></span>
         <span v-if="days > 1" class="rounded bg-stone-100 px-1.5 py-px dark:bg-stone-800">{{ days }} Tage</span>
+        <span v-if="event.place" title="Nächster größerer Ort zum GPS-Schwerpunkt (GeoNames)">{{ event.place.name }}, {{ countryName(event.place.country) }}</span>
         <button
           v-if="!event.title && event.suggested_title"
           class="rounded px-1.5 py-px text-stone-500 underline-offset-2 hover:underline"

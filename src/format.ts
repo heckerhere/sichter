@@ -30,6 +30,17 @@ export function formatDuration(s: number): string {
 
 export const fileName = (relPath: string) => relPath.slice(relPath.lastIndexOf("/") + 1);
 
+const regionNames = (() => {
+  try {
+    return new Intl.DisplayNames(["de"], { type: "region" });
+  } catch {
+    return null;
+  }
+})();
+
+/** "HR" -> "Kroatien" (fällt auf den Code zurück). */
+export const countryName = (code: string) => regionNames?.of(code) ?? code;
+
 const MONTHS = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
 export const monthName = (m: number) => MONTHS[m - 1] ?? "";
 

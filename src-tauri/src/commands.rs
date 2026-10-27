@@ -434,6 +434,28 @@ pub fn plan_empty_dirs(state: State<'_, AppState>) -> CmdResult<i64> {
 }
 
 #[tauri::command]
+pub fn plan_xmp_export(state: State<'_, AppState>) -> CmdResult<i64> {
+    let planned = plan::plan_xmp_export(&*db(&state)?);
+    store_plan(&state, RunKind::XmpExport, "Bewertungen als XMP exportieren", None, &(), planned)
+}
+
+#[tauri::command]
+pub fn xmp_export_enabled(state: State<'_, AppState>) -> CmdResult<bool> {
+    Ok(db(&state)?.query_row("SELECT value = '1' FROM setting WHERE key = 'xmp.export'", [], |r| r.get(0)).unwrap_or(false))
+}
+
+#[tauri::command]
+pub fn set_xmp_export_enabled(state: State<'_, AppState>, enabled: bool) -> CmdResult<()> {
+    db(&state)?
+        .execute(
+            "INSERT INTO setting (key, value) VALUES ('xmp.export', ?1) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            [if enabled { "1" } else { "0" }],
+        )
+        .map(|_| ())
+        .map_err(err)
+}
+
+#[tauri::command]
 pub fn set_root_locked(state: State<'_, AppState>, id: i64, locked: bool) -> CmdResult<()> {
     if !locked && state.run.lock().map_err(err)?.is_some() {
         return Err("Während ein Lauf aktiv ist, kann keine Sperre aufgehoben werden".into());
@@ -650,7 +672,7 @@ fn spawn_run(app: AppHandle, state: &State<'_, AppState>, run_id: i64, action: &
                         let _ = app.emit("run-progress", p);
                     }
                 };
-                let ex = Exec { app: &state.data_dir, cancel: &control.cancel, pause: &control.pause, progress: &progress, simulate_crash_after: None };
+                let ex = Exec { app: &state.data_dir, cancel: &control.cancel, pause: &control.pause, progress: &progress, simulate_crash_after: None, exiftool: state.tools.exiftool.as_ref() };
                 match action {
                     "dry" => journal::dry_run(&conn, run_id, &ex),
                     "execute" => journal::execute(&conn, run_id, confirmed_files, &ex),

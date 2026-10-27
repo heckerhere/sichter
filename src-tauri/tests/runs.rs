@@ -109,7 +109,7 @@ impl Env {
 
     fn exec_crash<T>(&self, crash: Option<usize>, f: impl FnOnce(&Exec) -> T) -> T {
         let (cancel, pause) = (AtomicBool::new(false), AtomicBool::new(false));
-        f(&Exec { app: &self.app, cancel: &cancel, pause: &pause, progress: &|_| {}, simulate_crash_after: crash })
+        f(&Exec { app: &self.app, cancel: &cancel, pause: &pause, progress: &|_| {}, simulate_crash_after: crash, exiftool: self.tools.exiftool.as_ref() })
     }
 
     fn one<T: rusqlite::types::FromSql>(&self, sql: &str) -> T {
@@ -496,7 +496,7 @@ fn cancel_stops_after_current_group_and_run_can_be_resumed() {
             cancel.store(true, std::sync::atomic::Ordering::SeqCst);
         }
     };
-    let ex = Exec { app: &env.app, cancel: &cancel, pause: &pause, progress: &progress, simulate_crash_after: None };
+    let ex = Exec { app: &env.app, cancel: &cancel, pause: &pause, progress: &progress, simulate_crash_after: None, exiftool: env.tools.exiftool.as_ref() };
     let first = journal::execute(&env.conn, run, files, &ex).unwrap();
     assert!(first.cancelled && first.done < files, "{first:?}");
     assert_eq!(env.one::<String>(&format!("SELECT status FROM run WHERE id = {run}")), "aborted");
@@ -576,4 +576,90 @@ fn locking_a_root_via_library_blocks_plans() {
     library::set_locked(&env.conn, env.root, true).unwrap();
     assert!(plan::plan_reorganize(&env.conn, &env.params(Mode::Move)).is_err());
     assert!(plan::plan_empty_dirs(&env.conn).is_err(), "gesperrte Roots werden nicht nach leeren Ordnern durchsucht");
+}
+
+mod xmp_export {
+    //! PLAN.md 9: XMP-Export – bestehende Sidecars werden gemergt, Undo stellt den Originalinhalt wieder her.
+    use super::*;
+
+    fn rating(env: &Env, path: &Path) -> String {
+        let out = env.tools.exiftool.as_ref().unwrap().command().args(["-s3", "-XMP-xmp:Rating"]).arg(path).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    fn enable(env: &Env) {
+        env.conn.execute("INSERT OR REPLACE INTO setting (key, value) VALUES ('xmp.export', '1')", []).unwrap();
+    }
+
+    fn rate(env: &Env, rel: &str, stars: Option<i64>, flag: Option<ratings::Flag>) {
+        let g = sichter_lib::scan::group_of(&env.conn, env.root, rel).unwrap().unwrap();
+        ratings::set(&env.conn, g, stars, flag).unwrap();
+    }
+
+    fn store(env: &Env, ops: &[plan::PlannedOp], summary: &plan::Summary) -> i64 {
+        let meta = plan::NewRun { kind: RunKind::XmpExport, title: "x", target_root_id: None, dry_run: false };
+        plan::store(&env.conn, &meta, &(), ops, summary).unwrap()
+    }
+
+    #[test]
+    fn merges_existing_creates_new_and_undo_restores_bytes() {
+        let env = Env::fixtures();
+        let existing = env.lib.join("2023-05-12 Geburtstag/IMG_0001.xmp");
+        let raw = env.lib.join("2023-05-12 Geburtstag/IMG_0001.CR2");
+        let new_xmp = env.lib.join("raw/DSC_0001.xmp");
+        let (orig_xmp, orig_raw) = (std::fs::read(&existing).unwrap(), std::fs::read(&raw).unwrap());
+
+        assert!(plan::plan_xmp_export(&env.conn).is_err(), "standardmäßig aus");
+        enable(&env);
+        rate(&env, "2023-05-12 Geburtstag/IMG_0001.CR2", Some(4), None);
+        rate(&env, "raw/DSC_0001.NEF", None, Some(ratings::Flag::Reject));
+        rate(&env, "misc/screenshot.png", Some(5), None); // kein RAW: kein Sidecar
+
+        let (ops, summary) = plan::plan_xmp_export(&env.conn).unwrap();
+        assert_eq!(ops.len(), 2, "{ops:?}");
+        let run = store(&env, &ops, &summary);
+        let report = env.exec(|ex| journal::execute(&env.conn, run, 2, ex)).unwrap();
+        assert_eq!((report.done, report.failed), (2, 0), "{:?}", report.messages);
+
+        assert_eq!(rating(&env, &existing), "4");
+        assert_eq!(rating(&env, &new_xmp), "-1");
+        let model = env.tools.exiftool.as_ref().unwrap().command().args(["-s3", "-Model"]).arg(&existing).output().unwrap();
+        assert_eq!(String::from_utf8_lossy(&model.stdout).trim(), "Canon DIGITAL IXUS 40", "gemergt, nicht ersetzt");
+        assert_eq!(std::fs::read(&raw).unwrap(), orig_raw, "nie in die Bilddatei");
+
+        let undo = env.exec(|ex| journal::undo(&env.conn, run, ex)).unwrap();
+        assert_eq!(undo.failed, 0, "{:?}", undo.messages);
+        assert_eq!(std::fs::read(&existing).unwrap(), orig_xmp, "Originalinhalt Byte für Byte zurück");
+        assert!(!new_xmp.exists(), "selbst angelegtes Sidecar entfernt");
+    }
+
+    #[test]
+    fn refuses_when_sidecar_changed_after_planning() {
+        let env = Env::fixtures();
+        enable(&env);
+        rate(&env, "2023-05-12 Geburtstag/IMG_0001.CR2", Some(2), None);
+        let (ops, summary) = plan::plan_xmp_export(&env.conn).unwrap();
+        let run = store(&env, &ops, &summary);
+        let xmp = env.lib.join("2023-05-12 Geburtstag/IMG_0001.xmp");
+        std::fs::write(&xmp, b"<x:xmpmeta>vom Nutzer bearbeitet</x:xmpmeta>").unwrap();
+        let report = env.exec(|ex| journal::execute(&env.conn, run, 1, ex)).unwrap();
+        assert_eq!((report.done, report.failed), (0, 1));
+        assert_eq!(std::fs::read(&xmp).unwrap(), b"<x:xmpmeta>vom Nutzer bearbeitet</x:xmpmeta>");
+    }
+
+    #[test]
+    fn undo_refuses_when_user_edited_after_export() {
+        let env = Env::fixtures();
+        enable(&env);
+        rate(&env, "raw/DSC_0001.NEF", Some(3), None);
+        let (ops, summary) = plan::plan_xmp_export(&env.conn).unwrap();
+        let run = store(&env, &ops, &summary);
+        env.exec(|ex| journal::execute(&env.conn, run, 1, ex)).unwrap();
+        // Lightroom hat das Sidecar inzwischen geändert: Undo fasst es nicht an.
+        let xmp = env.lib.join("raw/DSC_0001.xmp");
+        std::fs::write(&xmp, b"<x:xmpmeta>Lightroom</x:xmpmeta>").unwrap();
+        let undo = env.exec(|ex| journal::undo(&env.conn, run, ex)).unwrap();
+        assert_eq!(undo.failed, 1);
+        assert_eq!(std::fs::read(&xmp).unwrap(), b"<x:xmpmeta>Lightroom</x:xmpmeta>");
+    }
 }

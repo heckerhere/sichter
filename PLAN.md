@@ -321,7 +321,7 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [x] Duplikat-Aktionen über Planer
 - [x] Verlaufsansicht aller Läufe
 - [x] CSV/JSON-Log pro Lauf
-- [x] Alle Tests aus Abschnitt 9 grün — außer XMP-Export (gehört zu Phase 8)
+- [x] Alle Tests aus Abschnitt 9 grün
 
 ### Phase 7: Windows und Feinschliff
 - [ ] Windows-Sidecars (exiftool, ffmpeg, ffprobe) — später auf Windows; Skript `scripts/fetch-sidecars.ps1` vorbereitet, ungeprüft
@@ -335,6 +335,6 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [ ] Windows-Installer — später auf Windows; NSIS/MSI konfiguriert
 
 ### Phase 8: Optional
-- [ ] XMP-Export (standardmäßig aus) mit Merge und Undo
-- [ ] Burst-/Ähnlichkeitsgruppen
-- [ ] Offline-Reverse-Geocoding
+- [x] XMP-Export (standardmäßig aus) mit Merge und Undo
+- [x] Burst-/Ähnlichkeitsgruppen
+- [x] Offline-Reverse-Geocoding

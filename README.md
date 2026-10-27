@@ -46,6 +46,12 @@ Tauri signiert dann App und Sidecars (Hardened Runtime ist aktiv) und reicht zur
 
 **Windows:** `pwsh scripts/fetch-sidecars.ps1`, dann `pnpm tauri build`. Die Windows-Tests laufen im CI-Job `windows-latest`.
 
+## Datenquellen und Lizenzen
+
+- [ExifTool](https://exiftool.org) von Phil Harvey (Perl Artistic License / GPL), gebündelt.
+- [FFmpeg](https://ffmpeg.org) 8.1.3, als LGPL-2.1-Build gebündelt (`scripts/build-ffmpeg-lgpl.sh`).
+- [GeoNames](https://www.geonames.org) `cities1000`, CC BY 4.0, für Ortsnamen (`scripts/fetch-geonames.sh`, wird von `fetch-sidecars.sh` mit geladen).
+
 ## Fixtures
 
 `src-tauri/tests/fixtures/library` wird mit `scripts/make-fixtures.sh <Image-ExifTool-x/t/images>` erzeugt. RAW-Dateien sind Metadaten-Stubs aus der exiftool-Testsuite, JPEG/HEIC/PNG/TIFF/Videos sind echte, generierte Medien. Tests kopieren Fixtures immer in ein temporäres Verzeichnis und laufen nie gegen echte Fotoordner.

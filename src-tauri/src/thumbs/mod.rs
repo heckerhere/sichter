@@ -12,6 +12,7 @@
 //! Für die Vollbildansicht (Sichten) gibt es zusätzlich große Vorschauen als
 //! JPEG unter `previews/`, erzeugt bei Bedarf bzw. im Hintergrund vorab.
 
+pub mod dhash;
 pub mod preview;
 
 use std::path::{Path, PathBuf};

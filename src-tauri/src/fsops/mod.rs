@@ -39,6 +39,8 @@ pub enum FsOpError {
     CopyVerifyFailed(PathBuf),
     #[error("Pfad ist kein Ordner: {0}")]
     NotADirectory(PathBuf),
+    #[error("Nur XMP-Sidecars dürfen geschrieben werden: {0}")]
+    NotASidecar(PathBuf),
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -200,6 +202,65 @@ pub fn finish_interrupted_move(_op: OperationId, src: &Path, dst: &Path, expecte
         return Err(FsOpError::SourceChanged(src.into()));
     }
     fs::remove_file(src)?;
+    Ok(())
+}
+
+fn is_xmp(path: &Path) -> bool {
+    path.extension().is_some_and(|e| e.eq_ignore_ascii_case("xmp"))
+}
+
+/// Schreibt ein XMP-Sidecar (XMP-Export, PLAN.md 6.3). Die einzige Funktion, die
+/// eine bestehende Datei ersetzt, und nur unter diesen Bedingungen:
+/// * Endung `.xmp`, nie eine Bilddatei.
+/// * `previous = None`: Die Datei darf noch nicht existieren (wird neu angelegt).
+/// * `previous = Some(h)`: Die Datei muss genau den Inhalt `h` haben (Stand der
+///   Planung, vorher im Journal gesichert); dann atomar per Temp-Datei ersetzt.
+pub fn write_sidecar(_op: OperationId, path: &Path, bytes: &[u8], previous: Option<&FileHash>, guard: &PathGuard) -> Result<()> {
+    guard.check(path)?;
+    if !is_xmp(path) {
+        return Err(FsOpError::NotASidecar(path.into()));
+    }
+    match previous {
+        None => {
+            let mut file = match File::options().write(true).create_new(true).open(path) {
+                Ok(f) => f,
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return Err(FsOpError::DestinationExists(path.into())),
+                Err(e) => return Err(e.into()),
+            };
+            io::Write::write_all(&mut file, bytes)?;
+            file.sync_all()?;
+        }
+        Some(expected) => {
+            if hash::hash_file(path)? != *expected {
+                return Err(FsOpError::SourceChanged(path.into()));
+            }
+            let mut tmp_name = std::ffi::OsString::from(".");
+            tmp_name.push(path.file_name().unwrap_or_default());
+            tmp_name.push(".sichter-tmp");
+            let tmp = path.with_file_name(tmp_name);
+            let mut file = File::options().write(true).create_new(true).open(&tmp)?;
+            let written = io::Write::write_all(&mut file, bytes).and_then(|()| file.sync_all());
+            if let Err(e) = written {
+                let _ = fs::remove_file(&tmp);
+                return Err(e.into());
+            }
+            fs::rename(&tmp, path)?;
+        }
+    }
+    Ok(())
+}
+
+/// Entfernt ein XMP-Sidecar, das Sichter selbst angelegt hat (Undo des
+/// XMP-Exports). Nur, wenn der Inhalt noch genau dem Geschriebenen entspricht.
+pub fn remove_own_sidecar(_op: OperationId, path: &Path, written: &FileHash, guard: &PathGuard) -> Result<()> {
+    guard.check(path)?;
+    if !is_xmp(path) {
+        return Err(FsOpError::NotASidecar(path.into()));
+    }
+    if hash::hash_file(path)? != *written {
+        return Err(FsOpError::SourceChanged(path.into()));
+    }
+    fs::remove_file(path)?;
     Ok(())
 }
 
@@ -525,6 +586,29 @@ mod tests {
         test_support::write(&dst, b"jpeg-daten");
         finish_interrupted_move(op(), &src, &dst, &h, &PathGuard::default()).unwrap();
         assert!(!src.exists() && dst.exists());
+    }
+
+    #[test]
+    fn sidecar_writes_are_restricted() {
+        let dir = tempfile::tempdir().unwrap();
+        let g = PathGuard::default();
+        let xmp = dir.path().join("IMG_1.xmp");
+        let jpg = dir.path().join("IMG_1.jpg");
+        // Nur .xmp, nie Bilddateien.
+        assert!(matches!(write_sidecar(op(), &jpg, b"x", None, &g), Err(FsOpError::NotASidecar(_))));
+        write_sidecar(op(), &xmp, b"v1", None, &g).unwrap();
+        // Neu anlegen überschreibt nie.
+        assert!(matches!(write_sidecar(op(), &xmp, b"v2", None, &g), Err(FsOpError::DestinationExists(_))));
+        // Ersetzen nur bei erwartetem Inhalt.
+        assert!(matches!(write_sidecar(op(), &xmp, b"v2", Some(&hash_bytes(b"anders")), &g), Err(FsOpError::SourceChanged(_))));
+        write_sidecar(op(), &xmp, b"v2", Some(&hash_bytes(b"v1")), &g).unwrap();
+        assert_eq!(std::fs::read(&xmp).unwrap(), b"v2");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1, "keine Temp-Datei übrig");
+        // Entfernen nur des eigenen Inhalts.
+        assert!(remove_own_sidecar(op(), &xmp, &hash_bytes(b"v1"), &g).is_err());
+        remove_own_sidecar(op(), &xmp, &hash_bytes(b"v2"), &g).unwrap();
+        assert!(!xmp.exists());
+        assert!(matches!(write_sidecar(op(), &xmp, b"v1", None, &PathGuard::new([dir.path()])), Err(FsOpError::Locked(_))));
     }
 
     #[test]

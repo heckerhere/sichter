@@ -135,6 +135,7 @@ function onKey(e: KeyboardEvent) {
   else if (key === "u") rate(null, null, true);
   else if (/^[0-5]$/.test(key)) rate(Number(key), null);
   else if (key === "c") compare.value = (compare.value % 4) + 1;
+  else if (key === "b") showBurst();
   else if (key === "tab") focus.value = (focus.value + (e.shiftKey ? shown.value.length - 1 : 1)) % Math.max(1, shown.value.length);
   else if (key === " ") toggleVideo();
   else if (key === "escape") emit("close");
@@ -148,6 +149,23 @@ const setVideoEl = (el: unknown) => (videoEl = el as HTMLVideoElement | null);
 function toggleVideo() {
   const v = videoEl;
   if (v) v.paused ? void v.play() : v.pause();
+}
+
+/** Ganze Serie nebeneinander (bis zu 4 Bilder), beginnend beim ersten. */
+function showBurst() {
+  const b = current.value?.burst_id;
+  if (!b) return;
+  const first = list.value.findIndex((i) => i.burst_id === b);
+  const size = list.value.filter((i) => i.burst_id === b).length;
+  index.value = first;
+  compare.value = Math.min(4, Math.max(2, size));
+  focus.value = 0;
+}
+
+function burstPosition(item: EventItem) {
+  if (!item.burst_id) return null;
+  const members = list.value.filter((i) => i.burst_id === item.burst_id);
+  return `${members.indexOf(item) + 1}/${members.length}`;
 }
 
 const openExternal = (assetId: number) => api.openInDefaultApp(assetId).catch((e) => (error.value = String(e)));
@@ -253,6 +271,9 @@ const flagStyle: Record<Flag, string> = {
             {{ item.flag === "keep" ? "Behalten" : "Ausschuss" }}
           </span>
           <span v-if="item.stars" class="rounded bg-black/60 px-1.5 py-0.5 text-[11px] tracking-wider text-amber-300">{{ "★".repeat(item.stars) }}</span>
+          <span v-if="burstPosition(item)" class="rounded bg-sky-500/80 px-1.5 py-0.5 text-[11px] font-medium text-white" title="Serie: Taste B zeigt alle Bilder nebeneinander">
+            Serie {{ burstPosition(item) }}
+          </span>
         </div>
       </div>
       <div v-if="flash" class="pointer-events-none absolute inset-x-0 top-1/2 mx-auto w-fit -translate-y-1/2 rounded-lg bg-black/70 px-4 py-2 text-lg font-medium">
@@ -266,7 +287,7 @@ const flagStyle: Record<Flag, string> = {
       <span class="tabular-nums">{{ formatDate(current.time) }}<template v-if="current.date_source && current.date_source !== 'exif'"> · Datum unsicher</template></span>
       <span v-if="current.duration_s" class="tabular-nums">{{ formatDuration(current.duration_s) }}</span>
       <span v-if="current.kinds.includes('raw') && current.kinds.some((k) => k === 'jpeg' || k === 'heic')">RAW+JPEG</span>
-      <span class="ml-auto">← → blättern · P behalten · X Ausschuss · 1–5 Sterne · 0 keine Sterne · U zurücksetzen · C vergleichen · Leertaste Video · Esc</span>
+      <span class="ml-auto">← → blättern · P behalten · X Ausschuss · 1–5 Sterne · 0 keine Sterne · U zurücksetzen · C vergleichen · B Serie · Leertaste Video · Esc</span>
     </div>
 
     <!-- Filmstreifen -->
@@ -275,7 +296,10 @@ const flagStyle: Record<Flag, string> = {
         v-for="s in strip"
         :key="s.item.group_id"
         class="relative size-14 shrink-0 overflow-hidden rounded bg-stone-800"
-        :class="s.pos >= index && s.pos < index + compare ? 'ring-2 ring-stone-100' : 'opacity-60 hover:opacity-100'"
+        :class="[
+          s.pos >= index && s.pos < index + compare ? 'ring-2 ring-stone-100' : 'opacity-60 hover:opacity-100',
+          s.item.burst_id && 'border-t-2 border-sky-400',
+        ]"
         @click="index = s.pos; go(0)"
       >
         <img v-if="s.item.thumb" :src="thumbUrl(s.item.thumb)" loading="lazy" class="size-full object-cover" />

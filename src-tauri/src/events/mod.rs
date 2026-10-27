@@ -7,6 +7,7 @@
 //! * "Neu berechnen" ersetzt nur unbestätigte Events.
 
 pub mod cluster;
+pub mod places;
 
 use std::collections::{HashMap, HashSet};
 
@@ -90,6 +91,9 @@ pub struct GroupRow {
     pub preview_hash: Option<String>,
     /// Video der Gruppe (Video-Aufnahme oder Live-Photo-Teil).
     pub video_asset_id: Option<i64>,
+    /// Serie (Burst): Gruppen-ID der ersten Aufnahme der Serie und ihre Länge.
+    pub burst_id: Option<i64>,
+    pub burst_size: usize,
     #[serde(skip)]
     gps: Option<(f64, f64)>,
     #[serde(skip)]
@@ -166,6 +170,8 @@ fn load_rows(conn: &Connection, only_event: Option<i64>) -> rusqlite::Result<Vec
             flag: r.get(15)?,
             preview_hash: r.get(16)?,
             video_asset_id: r.get(17)?,
+            burst_id: None,
+            burst_size: 0,
             gps,
             camera,
             quicktime_utc,
@@ -194,8 +200,18 @@ fn to_item(row: &GroupRow) -> Option<Item> {
 // Automatische Zuordnung
 // ---------------------------------------------------------------------------
 
+/// Titelvorschlag: aussagekräftiger Ordnername, sonst Ortsname aus GPS.
+fn suggestion(items: &[Item]) -> String {
+    let from_folder = cluster::suggest_title(items);
+    if !from_folder.is_empty() {
+        return from_folder;
+    }
+    let points: Vec<(f64, f64)> = items.iter().filter_map(|i| i.gps).collect();
+    places::place_for(&points).map(|p| p.name).unwrap_or_default()
+}
+
 fn create_event(conn: &Connection, items: &[Item]) -> rusqlite::Result<i64> {
-    conn.execute("INSERT INTO event (title, suggested_title) VALUES ('', ?1)", [cluster::suggest_title(items)])?;
+    conn.execute("INSERT INTO event (title, suggested_title) VALUES ('', ?1)", [suggestion(items)])?;
     let id = conn.last_insert_rowid();
     add_items(conn, id, items)?;
     Ok(id)
@@ -218,7 +234,7 @@ fn refresh_event(conn: &Connection, event_id: i64) -> rusqlite::Result<()> {
     let end = items.iter().map(|i| i.time).max();
     conn.execute(
         "UPDATE event SET date_start = ?2, date_end = ?3, suggested_title = ?4 WHERE id = ?1",
-        params![event_id, start.map(fmt_time), end.map(fmt_time), cluster::suggest_title(&items)],
+        params![event_id, start.map(fmt_time), end.map(fmt_time), suggestion(&items)],
     )?;
     Ok(())
 }
@@ -298,6 +314,8 @@ pub struct EventCard {
     pub thumbs: Vec<String>,
     /// Videos, deren Zeit nach der anderen Zeitzonen-Deutung besser zu den Fotos derselben Kamera passt.
     pub tz_hint_cameras: Vec<String>,
+    /// Ort am GPS-Schwerpunkt (GeoNames), falls Aufnahmen GPS haben.
+    pub place: Option<places::Place>,
 }
 
 /// Hinweis, wenn Videos einer Kamera ohne Zeitzone mehr als eine Stunde neben
@@ -362,10 +380,22 @@ pub fn list_events(conn: &Connection) -> rusqlite::Result<Vec<EventCard>> {
                 keep_count: members.iter().filter(|m| m.flag == "keep").count(),
                 reject_count: members.iter().filter(|m| m.flag == "reject").count(),
                 tz_hint_cameras: tz_hints(&members),
+                place: places::place_for(&members.iter().filter_map(|m| m.gps).collect::<Vec<_>>()),
                 thumbs,
             }
         })
         .collect())
+}
+
+/// Ortsname je Event (für den Platzhalter {Ort} im Planer).
+pub fn event_places(conn: &Connection) -> rusqlite::Result<HashMap<i64, String>> {
+    let mut points: HashMap<i64, Vec<(f64, f64)>> = HashMap::new();
+    for r in load_rows(conn, None)? {
+        if let (Some(e), Some(g)) = (r.event_id, r.gps) {
+            points.entry(e).or_default().push(g);
+        }
+    }
+    Ok(points.into_iter().filter_map(|(e, p)| places::place_for(&p).map(|pl| (e, pl.name))).collect())
 }
 
 /// Zeit, Kamera und Event je Gruppe (für den Planer).
@@ -383,17 +413,55 @@ pub fn group_contexts(conn: &Connection) -> rusqlite::Result<HashMap<i64, GroupC
         .collect())
 }
 
-/// Alle Aufnahmen zeitlich sortiert (Sichten ohne Event-Auswahl).
-pub fn all_items(conn: &Connection) -> rusqlite::Result<Vec<GroupRow>> {
-    let mut rows = load_rows(conn, None)?;
+/// Höchster Zeitabstand und dHash-Abstand innerhalb einer Serie.
+const BURST_GAP_S: i64 = 2;
+const BURST_MAX_DISTANCE: u32 = 12;
+
+/// Markiert Serien: aufeinanderfolgende Fotos (keine Videos), höchstens 2 s
+/// auseinander und mit ähnlichem Bildinhalt. `rows` muss zeitlich sortiert sein.
+fn assign_bursts(rows: &mut [GroupRow], dhash: &HashMap<String, u64>) {
+    let hash_of = |r: &GroupRow| r.thumb.as_ref().and_then(|t| dhash.get(t)).copied();
+    let mut start = 0;
+    for i in 1..=rows.len() {
+        let continues = i < rows.len() && {
+            let (a, b) = (&rows[i - 1], &rows[i]);
+            let photos = a.kind != "video" && b.kind != "video";
+            let close = matches!((a.effective, b.effective), (Some(x), Some(y)) if (y - x).num_seconds().abs() <= BURST_GAP_S);
+            let similar = matches!((hash_of(a), hash_of(b)), (Some(x), Some(y)) if crate::thumbs::dhash::distance(x, y) <= BURST_MAX_DISTANCE);
+            photos && close && similar
+        };
+        if !continues {
+            let len = i - start;
+            if len >= 2 {
+                let id = rows[start].group_id;
+                for r in &mut rows[start..i] {
+                    r.burst_id = Some(id);
+                    r.burst_size = len;
+                }
+            }
+            start = i;
+        }
+    }
+}
+
+fn load_dhashes(conn: &Connection) -> rusqlite::Result<HashMap<String, u64>> {
+    let mut stmt = conn.prepare("SELECT hash, dhash FROM phash")?;
+    stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? as u64)))?.collect()
+}
+
+fn sorted_with_bursts(conn: &Connection, mut rows: Vec<GroupRow>) -> rusqlite::Result<Vec<GroupRow>> {
     rows.sort_by(|a, b| a.time.cmp(&b.time).then(a.group_id.cmp(&b.group_id)));
+    assign_bursts(&mut rows, &load_dhashes(conn)?);
     Ok(rows)
 }
 
+/// Alle Aufnahmen zeitlich sortiert (Sichten ohne Event-Auswahl).
+pub fn all_items(conn: &Connection) -> rusqlite::Result<Vec<GroupRow>> {
+    sorted_with_bursts(conn, load_rows(conn, None)?)
+}
+
 pub fn event_items(conn: &Connection, event_id: i64) -> rusqlite::Result<Vec<GroupRow>> {
-    let mut rows = load_rows(conn, Some(event_id))?;
-    rows.sort_by(|a, b| a.time.cmp(&b.time).then(a.group_id.cmp(&b.group_id)));
-    Ok(rows)
+    sorted_with_bursts(conn, load_rows(conn, Some(event_id))?)
 }
 
 /// Aufnahmen, die (noch) keinem Event zugeordnet sind, z. B. ohne gelesenes Datum.
@@ -568,12 +636,36 @@ mod tests {
             flag: "none".into(),
             preview_hash: None,
             video_asset_id: None,
+            burst_id: None,
+            burst_size: 0,
             gps: None,
             camera: camera.into(),
             quicktime_utc,
             raw_time: Some(raw),
             effective: Some(effective),
         }
+    }
+
+    #[test]
+    fn bursts_need_close_time_and_similar_content() {
+        let mut rows: Vec<GroupRow> = [(1, "10:00"), (2, "10:00"), (3, "10:00"), (4, "10:05"), (5, "10:05")]
+            .iter()
+            .map(|(id, t)| {
+                let mut r = row(*id, "Cam", &format!("2023-07-13 {t}"), false, TzMode::Local);
+                r.thumb = Some(format!("t{id}"));
+                r
+            })
+            .collect();
+        // 1, 2 ähnlich und gleichzeitig: Serie. 3 gleichzeitig, aber anderes Motiv.
+        // 4, 5 ähnlich, aber 5 ist ein Video: keine Serie.
+        rows[4].kind = "video".into();
+        let dhash: HashMap<String, u64> = [("t1", 0u64), ("t2", 0b111), ("t3", u64::MAX), ("t4", 0), ("t5", 0)]
+            .iter()
+            .map(|(k, v)| (k.to_string(), *v))
+            .collect();
+        assign_bursts(&mut rows, &dhash);
+        let ids: Vec<(Option<i64>, usize)> = rows.iter().map(|r| (r.burst_id, r.burst_size)).collect();
+        assert_eq!(ids, vec![(Some(1), 2), (Some(1), 2), (None, 0), (None, 0), (None, 0)]);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Zielpfad-Vorlagen und Windows-kompatible Bereinigung von Pfadteilen.
 //!
 //! Platzhalter: `{Jahr}`, `{Monat}`, `{Datum}` (YYYY-MM-DD), `{Anlass}`,
-//! `{Kamera}`, `{Original-Dateiname}`. Der letzte Pfadteil muss
+//! `{Ort}` (GeoNames, aus GPS), `{Kamera}`, `{Original-Dateiname}`. Der letzte Pfadteil muss
 //! `{Original-Dateiname}` enthalten, damit zusammengehörige Dateien (RAW+JPEG,
 //! Sidecars) ihre gemeinsamen Namen behalten.
 
@@ -9,7 +9,7 @@ use chrono::{Datelike, NaiveDate};
 use unicode_normalization::UnicodeNormalization;
 
 pub const DEFAULT_TEMPLATE: &str = "{Jahr}/{Datum} {Anlass}/{Original-Dateiname}";
-pub const PLACEHOLDERS: &[&str] = &["{Jahr}", "{Monat}", "{Datum}", "{Anlass}", "{Kamera}", "{Original-Dateiname}"];
+pub const PLACEHOLDERS: &[&str] = &["{Jahr}", "{Monat}", "{Datum}", "{Anlass}", "{Ort}", "{Kamera}", "{Original-Dateiname}"];
 /// Längenlimit je Pfadteil (Zeichen). Hält auch tiefe Strukturen unter den
 /// Grenzen gängiger Dateisysteme.
 const MAX_SEGMENT: usize = 120;
@@ -24,6 +24,8 @@ pub struct Context<'a> {
     /// Ende eines mehrtägigen Events (für die Schreibweise "von bis").
     pub end: NaiveDate,
     pub occasion: &'a str,
+    /// Ortsname, leer ohne GPS.
+    pub place: &'a str,
     pub camera: &'a str,
     pub original_name: &'a str,
     /// Mehrtägige Events als "2024-07-12 bis 2024-07-20" statt nur Startdatum.
@@ -68,6 +70,7 @@ pub fn render(template: &str, ctx: &Context) -> (Vec<String>, String) {
             .replace("{Monat}", &format!("{:02}", ctx.start.month()))
             .replace("{Datum}", &date)
             .replace("{Anlass}", ctx.occasion)
+            .replace("{Ort}", ctx.place)
             .replace("{Kamera}", ctx.camera)
     };
     let segments: Vec<&str> = template.trim().split(['/', '\\']).collect();
@@ -158,6 +161,7 @@ mod tests {
             start: NaiveDate::from_ymd_opt(2024, 7, 12).unwrap(),
             end: NaiveDate::from_ymd_opt(2024, 7, 20).unwrap(),
             occasion,
+            place: "Split",
             camera: "Canon EOS R6",
             original_name: name,
             date_range: false,
@@ -188,6 +192,12 @@ mod tests {
     }
 
     #[test]
+    fn place_placeholder() {
+        let (dirs, _) = render("{Jahr}/{Datum} {Ort}/{Original-Dateiname}", &ctx("", "a.jpg"));
+        assert_eq!(dirs, ["2024", "2024-07-12 Split"]);
+    }
+
+    #[test]
     fn validation() {
         assert!(validate(DEFAULT_TEMPLATE).is_ok());
         assert!(validate("").is_err());
@@ -195,8 +205,9 @@ mod tests {
         assert!(validate("C:/x/{Original-Dateiname}").is_err());
         assert!(validate("{Jahr}/../{Original-Dateiname}").is_err());
         assert!(validate("{Jahr}/{Datum}").is_err(), "Dateiname fehlt");
-        let err = validate("{Jahr}/{Ort}/{Original-Dateiname}").unwrap_err();
-        assert!(err.contains("{Ort}"), "{err}");
+        assert!(validate("{Jahr}/{Ort}/{Original-Dateiname}").is_ok());
+        let err = validate("{Jahr}/{Wetter}/{Original-Dateiname}").unwrap_err();
+        assert!(err.contains("{Wetter}"), "{err}");
     }
 
     #[test]

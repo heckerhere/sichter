@@ -44,6 +44,7 @@ pub enum RunKind {
     DupesToFolder,
     DupesToTrash,
     EmptyDirsToTrash,
+    XmpExport,
 }
 
 impl RunKind {
@@ -55,6 +56,7 @@ impl RunKind {
             RunKind::DupesToFolder => "dupes_to_folder",
             RunKind::DupesToTrash => "dupes_to_trash",
             RunKind::EmptyDirsToTrash => "empty_dirs_to_trash",
+            RunKind::XmpExport => "xmp_export",
         }
     }
 
@@ -77,6 +79,8 @@ pub enum Op {
     Move,
     Copy,
     Trash,
+    /// XMP-Sidecar mit Bewertung schreiben bzw. mergen.
+    Xmp,
 }
 
 impl Op {
@@ -86,6 +90,7 @@ impl Op {
             Op::Move => "move",
             Op::Copy => "copy",
             Op::Trash => "trash",
+            Op::Xmp => "xmp",
         }
     }
 }
@@ -100,6 +105,8 @@ pub struct PlannedOp {
     pub asset_id: Option<i64>,
     pub group_id: Option<i64>,
     pub keep_path: Option<PathBuf>,
+    /// Bei XMP: die zu schreibende Bewertung.
+    pub rating: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -292,7 +299,7 @@ impl Builder {
         for d in missing.into_iter().rev() {
             self.planned_dirs.insert(key(&d));
             self.summary.mkdirs += 1;
-            self.ops.push(PlannedOp { op: Op::Mkdir, src: None, dst: Some(d), hash: None, size: 0, asset_id: None, group_id: None, keep_path: None });
+            self.ops.push(PlannedOp { op: Op::Mkdir, src: None, dst: Some(d), hash: None, size: 0, asset_id: None, group_id: None, keep_path: None, rating: None });
         }
     }
 
@@ -380,6 +387,7 @@ impl Builder {
                 asset_id: Some(m.asset_id),
                 group_id: Some(g.id),
                 keep_path: None,
+                rating: None,
             });
         }
         self.summary.groups += 1;
@@ -398,6 +406,7 @@ impl Builder {
                 asset_id: Some(m.asset_id),
                 group_id: Some(g.id),
                 keep_path: keep.and_then(|k| k.get(&m.asset_id).cloned()),
+                rating: None,
             });
         }
         self.summary.groups += 1;
@@ -422,6 +431,11 @@ pub fn plan_reorganize(conn: &Connection, p: &ReorganizeParams) -> Result<(Vec<P
         return Err(PlanError::Invalid("Der Zielordner ist nicht erreichbar.".into()));
     }
     let contexts = crate::events::group_contexts(conn)?;
+    let places = if p.template.contains("{Ort}") || p.video_template.as_deref().is_some_and(|v| v.contains("{Ort}")) {
+        crate::events::event_places(conn)?
+    } else {
+        HashMap::new()
+    };
     let events: HashMap<i64, (String, Option<NaiveDate>, Option<NaiveDate>, bool)> = {
         let mut stmt = conn.prepare("SELECT id, CASE WHEN title != '' THEN title ELSE suggested_title END, date_start, date_end, confirmed FROM event")?;
         let day = |s: Option<String>| s.and_then(|s| NaiveDate::parse_from_str(&s[..10.min(s.len())], "%Y-%m-%d").ok());
@@ -453,7 +467,15 @@ pub fn plan_reorganize(conn: &Connection, p: &ReorganizeParams) -> Result<(Vec<P
                 let render = |name: &str| {
                     template::render(
                         tpl,
-                        &template::Context { start: *start, end: end.unwrap_or(*start), occasion: title, camera, original_name: name, date_range: p.date_range },
+                        &template::Context {
+                            start: *start,
+                            end: end.unwrap_or(*start),
+                            occasion: title,
+                            place: ctx.and_then(|c| c.event_id).and_then(|id| places.get(&id)).map_or("", String::as_str),
+                            camera,
+                            original_name: name,
+                            date_range: p.date_range,
+                        },
                     )
                 };
                 let (dirs, _) = render(g.primary().name());
@@ -552,6 +574,68 @@ pub fn plan_dupes(conn: &Connection, approved_hashes: &[String], to_trash: bool)
     Ok((b.ops, b.summary))
 }
 
+/// XMP-Export der Bewertungen (PLAN.md 6.3, standardmäßig aus). Für jede
+/// bewertete Gruppe mit RAW: ein bestehendes Sidecar der Gruppe wird gemergt,
+/// sonst ein neues `<RAW-Name ohne Endung>.xmp` angelegt. Nie in die Bilddatei.
+pub fn plan_xmp_export(conn: &Connection) -> Result<(Vec<PlannedOp>, Summary)> {
+    let enabled: bool = conn
+        .query_row("SELECT value = '1' FROM setting WHERE key = 'xmp.export'", [], |r| r.get(0))
+        .unwrap_or(false);
+    if !enabled {
+        return Err(PlanError::Invalid("Der XMP-Export ist ausgeschaltet (Einstellungen).".into()));
+    }
+    let ratings: HashMap<i64, i64> = {
+        let mut stmt = conn.prepare("SELECT group_id, CASE WHEN flag = 'reject' THEN -1 ELSE stars END FROM rating")?;
+        stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?
+    };
+    let mut b = Builder::default();
+    for g in load_groups(conn)? {
+        let Some(&rating) = ratings.get(&g.id).filter(|r| **r != 0) else { continue };
+        let Some(raw) = g.members.iter().find(|m| m.kind == "raw") else { continue };
+        let raw_name = raw.name();
+        let stem = raw_name.rfind('.').map_or(raw_name, |i| &raw_name[..i]);
+        // Vorhandenes Sidecar der Gruppe: "IMG_1.xmp" oder darktable-Stil "IMG_1.CR2.xmp".
+        let existing = g.members.iter().find(|m| {
+            let n = m.name().to_lowercase();
+            m.kind == "sidecar" && (n == format!("{}.xmp", stem.to_lowercase()) || n == format!("{}.xmp", raw_name.to_lowercase()))
+        });
+        let (path, hash) = match existing {
+            Some(x) if x.hash.is_none() => {
+                b.summary.conflicts.push(Conflict { kind: ConflictKind::NotHashed, path: g.root.join(&x.rel_path).display().to_string(), target: None });
+                continue;
+            }
+            Some(x) => (from_rel_path(&g.root, &x.rel_path), x.hash.clone()),
+            None => {
+                let dir = raw.rel_path.rsplit_once('/').map_or("", |(d, _)| d);
+                let path = from_rel_path(&g.root, dir).join(format!("{stem}.xmp"));
+                if std::fs::symlink_metadata(&path).is_ok() {
+                    // Liegt da, ist aber nicht im Index: erst scannen.
+                    b.summary.conflicts.push(Conflict { kind: ConflictKind::NotHashed, path: path.display().to_string(), target: None });
+                    continue;
+                }
+                (path, None)
+            }
+        };
+        b.summary.files += 1;
+        b.summary.groups += 1;
+        b.ops.push(PlannedOp {
+            op: Op::Xmp,
+            src: None,
+            dst: Some(path),
+            hash,
+            size: 0,
+            asset_id: Some(raw.asset_id),
+            group_id: Some(g.id),
+            keep_path: None,
+            rating: Some(rating),
+        });
+    }
+    if b.ops.is_empty() {
+        return Err(PlanError::Invalid("Keine bewerteten RAW-Aufnahmen gefunden.".into()));
+    }
+    Ok((b.ops, b.summary))
+}
+
 /// Dateien, die einen Ordner nicht "nicht leer" machen (PLAN.md 3.10).
 const IGNORABLE: &[&str] = &[".DS_Store", "Thumbs.db"];
 
@@ -605,6 +689,7 @@ pub fn plan_empty_dirs(conn: &Connection) -> Result<(Vec<PlannedOp>, Summary)> {
                     asset_id: None,
                     group_id: None,
                     keep_path: None,
+                    rating: None,
                 });
                 // Unterordner gehören dazu, nicht einzeln aufführen.
                 walker.skip_current_dir();
@@ -668,12 +753,13 @@ pub fn store(conn: &Connection, run: &NewRun, params: &impl Serialize, ops: &[Pl
     let run_id = tx.last_insert_rowid();
     {
         let mut insert = tx.prepare(
-            "INSERT INTO operation (run_id, seq, op, src, dst, hash, size, asset_id, group_id, keep_path)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT INTO operation (run_id, seq, op, src, dst, hash, size, asset_id, group_id, keep_path, note)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
         )?;
         let path = |p: &Option<PathBuf>| p.as_ref().map(|p| p.to_string_lossy().into_owned());
         for (seq, o) in ops.iter().enumerate() {
-            insert.execute(params![run_id, seq as i64, o.op.as_str(), path(&o.src), path(&o.dst), o.hash, o.size, o.asset_id, o.group_id, path(&o.keep_path)])?;
+            let note = o.rating.map(|r| serde_json::json!({ "rating": r }).to_string());
+            insert.execute(params![run_id, seq as i64, o.op.as_str(), path(&o.src), path(&o.dst), o.hash, o.size, o.asset_id, o.group_id, path(&o.keep_path), note])?;
         }
     }
     tx.commit()?;

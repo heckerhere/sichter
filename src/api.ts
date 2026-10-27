@@ -203,6 +203,7 @@ export interface EventCard {
   reject_count: number;
   thumbs: string[];
   tz_hint_cameras: string[];
+  place: { name: string; country: string } | null;
 }
 
 export interface EventsOverview {
@@ -228,6 +229,9 @@ export interface EventItem {
   flag: Flag;
   preview_hash: string | null;
   video_asset_id: number | null;
+  /** Serie (Burst): Gruppe der ersten Aufnahme, Länge der Serie. */
+  burst_id: number | null;
+  burst_size: number;
 }
 
 export type Flag = "none" | "keep" | "reject";
@@ -268,7 +272,7 @@ export type RunStatus = "planned" | "running" | "done" | "aborted" | "undone";
 
 export interface RunOp {
   seq: number;
-  op: "mkdir" | "move" | "copy" | "trash";
+  op: "mkdir" | "move" | "copy" | "trash" | "xmp";
   src: string | null;
   dst: string | null;
   size: number | null;
@@ -395,6 +399,9 @@ export const api = {
   runCancel: () => invoke<void>("run_cancel"),
   runState: () => invoke<RunState>("run_state"),
   runOpenLog: (runId: number) => invoke<void>("run_open_log", { runId }),
+  planXmpExport: () => invoke<number>("plan_xmp_export"),
+  xmpExportEnabled: () => invoke<boolean>("xmp_export_enabled"),
+  setXmpExportEnabled: (enabled: boolean) => invoke<void>("set_xmp_export_enabled", { enabled }),
   planEmptyDirs: () => invoke<number>("plan_empty_dirs"),
   setRootLocked: (id: number, locked: boolean) => invoke<void>("set_root_locked", { id, locked }),
   cacheInfo: () => invoke<{ data_dir: string; thumbs: number; previews: number; logs: number }>("cache_info"),

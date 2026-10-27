@@ -8,6 +8,7 @@
 //!   "Datum unsicher".
 
 pub mod exiftool;
+pub mod xmp;
 
 use std::sync::LazyLock;
 

@@ -12,6 +12,16 @@ const lib = useLibraryStore();
 const router = useRouter();
 const showTrash = ref(false);
 const error = ref<string | null>(null);
+const xmpEnabled = ref(false);
+void api.xmpExportEnabled().then((v) => (xmpEnabled.value = v));
+
+async function exportXmp() {
+  try {
+    await router.push(`/plan/${await api.planXmpExport()}`);
+  } catch (e) {
+    error.value = String(e);
+  }
+}
 
 async function rejectsToFolder() {
   try {
@@ -64,6 +74,10 @@ async function close() {
       <button class="rounded-md border border-red-300 px-3 py-1.5 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950" @click="showTrash = true">
         In den Papierkorb …
       </button>
+    </div>
+    <div v-if="xmpEnabled && totals.rated" class="mt-3 flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900">
+      <span class="flex-1">Bewertungen von RAW-Aufnahmen für Lightroom & Co. als XMP-Sidecar speichern.</span>
+      <button class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="exportXmp">Als XMP exportieren …</button>
     </div>
     <p v-if="error" class="mt-3 rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-500/10 dark:text-red-300">{{ error }}</p>
 

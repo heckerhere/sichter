@@ -131,7 +131,7 @@ impl Scanner<'_> {
             crate::storage::rebuild(self.conn, root.id)?;
         }
 
-        let steps: [Step; 4] = [Self::read_metadata, Self::regroup, Self::hash_assets, Self::make_thumbnails];
+        let steps: [Step; 5] = [Self::read_metadata, Self::regroup, Self::hash_assets, Self::make_thumbnails, Self::perceptual_hashes];
         for step in steps {
             if self.cancelled() {
                 break;
@@ -561,6 +561,38 @@ impl Scanner<'_> {
             }
             tx.commit()?;
         }
+        Ok(())
+    }
+}
+
+impl Scanner<'_> {
+    /// dHash für Serien-Erkennung, aus den Thumbnails im Cache (schnell, kein
+    /// erneutes Lesen der Originale).
+    fn perceptual_hashes(&mut self, _: &mut ScanReport, _: &HashSet<DirKey>) -> Result<(), ScanError> {
+        let pending: Vec<String> = {
+            let mut stmt = self.conn.prepare(
+                "SELECT t.hash FROM thumb t LEFT JOIN phash p ON p.hash = t.hash WHERE t.status = 'ok' AND p.hash IS NULL",
+            )?;
+            stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+        };
+        let app = self.app;
+        let results: Vec<(String, u64)> = pending
+            .par_iter()
+            .filter_map(|h| {
+                let path = app.join(thumbs::cache_rel_path(h)).ok()?;
+                let img = image::open(path).ok()?;
+                Some((h.clone(), thumbs::dhash::dhash(&img)))
+            })
+            .collect();
+        let tx = self.conn.transaction()?;
+        {
+            let mut insert = tx.prepare("INSERT OR REPLACE INTO phash (hash, dhash) VALUES (?1, ?2)")?;
+            for (h, d) in results {
+                // SQLite kennt nur vorzeichenbehaftete 64 Bit.
+                insert.execute(params![h, d as i64])?;
+            }
+        }
+        tx.commit()?;
         Ok(())
     }
 }

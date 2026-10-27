@@ -76,7 +76,7 @@ const tree = (map: Record<string, number>) =>
     .map(([dir, n]) => ({ dir: rel(dir), n }))
     .sort((a, b) => a.dir.localeCompare(b.dir, "de", { numeric: true }));
 
-const opLabel = { mkdir: "Ordner anlegen", move: "Verschieben", copy: "Kopieren", trash: "Papierkorb" };
+const opLabel = { mkdir: "Ordner anlegen", move: "Verschieben", copy: "Kopieren", trash: "Papierkorb", xmp: "XMP schreiben" };
 const statusLabel = { planned: "geplant", running: "läuft", done: "ausgeführt", aborted: "abgebrochen", undone: "rückgängig gemacht" };
 
 async function act(f: () => Promise<unknown>) {
