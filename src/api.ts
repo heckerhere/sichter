@@ -232,6 +232,124 @@ export interface EventItem {
 
 export type Flag = "none" | "keep" | "reject";
 
+export type PlanMode = "move" | "copy";
+
+export interface ReorganizeParams {
+  source_root_ids: number[];
+  target_root_id: number;
+  template: string;
+  video_template: string | null;
+  mode: PlanMode;
+  date_range: boolean;
+  only_confirmed: boolean;
+}
+
+export type ConflictKind = "duplicate_at_target" | "renamed" | "not_hashed" | "group_partial";
+
+export interface PlanConflict {
+  kind: ConflictKind;
+  path: string;
+  target: string | null;
+}
+
+export interface PlanSummary {
+  files: number;
+  bytes: number;
+  mkdirs: number;
+  groups: number;
+  in_place: number;
+  skipped_unconfirmed: number;
+  conflicts: PlanConflict[];
+  bytes_to_copy: number;
+  free_bytes: number | null;
+}
+
+export type RunStatus = "planned" | "running" | "done" | "aborted" | "undone";
+
+export interface RunOp {
+  seq: number;
+  op: "mkdir" | "move" | "copy" | "trash";
+  src: string | null;
+  dst: string | null;
+  size: number | null;
+  status: "planned" | "done" | "failed" | "undone";
+  error: string | null;
+  keep_path: string | null;
+}
+
+export interface RunDetails {
+  id: number;
+  kind: string;
+  title: string;
+  status: RunStatus;
+  dry_run: boolean;
+  created_at: string;
+  finished_at: string | null;
+  log_path: string | null;
+  summary: PlanSummary;
+  files: number;
+  mkdirs: number;
+  counts: Record<string, number>;
+  before: Record<string, number>;
+  after: Record<string, number>;
+  ops: RunOp[];
+  total_ops: number;
+}
+
+export interface RunListItem {
+  id: number;
+  kind: string;
+  title: string;
+  status: RunStatus;
+  dry_run: boolean;
+  created_at: string;
+  finished_at: string | null;
+  files: number;
+  done: number;
+  failed: number;
+  undone: number;
+  log_path: string | null;
+}
+
+export interface RunProgress {
+  run_id: number;
+  done: number;
+  total: number;
+  current: string | null;
+  paused: boolean;
+}
+
+export interface RunReport {
+  run_id: number;
+  dry_run: boolean;
+  done: number;
+  failed: number;
+  undone: number;
+  skipped: number;
+  cancelled: boolean;
+  messages: [string, string][];
+  log_path: string | null;
+  manual_restore: string[];
+}
+
+export type RunAction = "dry" | "execute" | "undo";
+export type RunFinished =
+  | { status: "ok"; run_id: number; action: RunAction; report: RunReport }
+  | { status: "error"; run_id: number; action: RunAction; message: string };
+
+export interface RunState {
+  running: number | null;
+  paused: boolean;
+  open_plans: number;
+  last_run: string | null;
+}
+
+export interface RejectGroup {
+  group_id: number;
+  thumb: string | null;
+  files: [string, number][];
+}
+
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
   listRoots: () => invoke<RootInfo[]>("list_roots"),
@@ -261,6 +379,23 @@ export const api = {
   resetRating: (groupId: number) => invoke<void>("reset_rating", { groupId }),
   previewsPrepare: (hashes: string[]) => invoke<void>("previews_prepare", { hashes }),
   openInDefaultApp: (assetId: number) => invoke<void>("open_in_default_app", { assetId }),
+  runsDryRunMode: () => invoke<boolean>("runs_dry_run_mode"),
+  runsSetDryRunMode: (enabled: boolean) => invoke<void>("runs_set_dry_run_mode", { enabled }),
+  planTemplatePreview: (params: ReorganizeParams) => invoke<{ error: string | null; samples: [string, string][] }>("plan_template_preview", { params }),
+  planReorganize: (params: ReorganizeParams) => invoke<number>("plan_reorganize", { params }),
+  planRejects: (toTrash: boolean, approvedGroups: number[]) => invoke<number>("plan_rejects", { toTrash, approvedGroups }),
+  planDupes: (hashes: string[], toTrash: boolean) => invoke<number>("plan_dupes", { hashes, toTrash }),
+  runDiscard: (runId: number) => invoke<void>("run_discard", { runId }),
+  runDetails: (runId: number) => invoke<RunDetails>("run_details", { runId }),
+  runsList: () => invoke<RunListItem[]>("runs_list"),
+  runDry: (runId: number) => invoke<void>("run_dry", { runId }),
+  runExecute: (runId: number, confirmedFiles: number) => invoke<void>("run_execute", { runId, confirmedFiles }),
+  runUndo: (runId: number) => invoke<void>("run_undo", { runId }),
+  runPause: (paused: boolean) => invoke<void>("run_pause", { paused }),
+  runCancel: () => invoke<void>("run_cancel"),
+  runState: () => invoke<RunState>("run_state"),
+  runOpenLog: (runId: number) => invoke<void>("run_open_log", { runId }),
+  rejectsList: () => invoke<RejectGroup[]>("rejects_list"),
   dupesAnalyze: () => invoke<DupeAnalysis>("dupes_analyze"),
   setDupeChoice: (hash: string, keepAssetId: number | null) => invoke<void>("set_dupe_choice", { hash, keepAssetId }),
   largestFiles: (limit: number) => invoke<LargeFile[]>("largest_files", { limit }),

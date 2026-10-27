@@ -138,7 +138,8 @@ fn messiness(path: &str) -> (i32, Vec<&'static str>) {
         reasons.push("Dateiname sieht nach nummerierter Kopie aus");
     }
     // Datumsordner (2023, 2023-05, 2023-05-12 …) gelten als sortiert.
-    let dated = path.split('/').any(|seg| seg.len() >= 4 && seg[..4].chars().all(|c| c.is_ascii_digit()) && seg.starts_with(['1', '2']));
+    // Zeichenweise: Ordnernamen können mit Umlauten beginnen.
+    let dated = path.split('/').any(|seg| seg.starts_with(['1', '2']) && seg.chars().take(4).filter(char::is_ascii_digit).count() == 4);
     if dated {
         score -= 3;
     }
@@ -464,6 +465,15 @@ mod tests {
         assert_eq!(g.files[0].rel_path, "2023/2023-05-12 Geburtstag/IMG_1.jpg");
         assert_eq!(g.redundant_size, 10);
         assert!(g.suggestion_reason.contains("Downloads"), "{}", g.suggestion_reason);
+    }
+
+    #[test]
+    fn umlaut_folder_names_do_not_panic() {
+        // Regression: Byte-Index mitten in einem Mehrbyte-Zeichen.
+        for p in ["Güßen/a.jpg", "Ü/a.jpg", "Ölmühle (2)/a.jpg", "2023 Grüße/a.jpg"] {
+            let _ = messiness(p);
+        }
+        assert!(messiness("2023 Grüße/a.jpg").0 < messiness("Grüße/a.jpg").0, "Datumsordner bevorzugt");
     }
 
     #[test]

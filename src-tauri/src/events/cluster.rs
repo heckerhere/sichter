@@ -111,7 +111,11 @@ pub fn title_from_folder(folder: &str) -> String {
         rest = rest[digits..].trim_start_matches([' ', '-', '_', '.']).trim();
     }
     let lower = rest.to_lowercase();
-    let camera_folder = lower.len() >= 3 && lower[..3].chars().all(|c| c.is_ascii_digit()) && lower[3..].chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    // Kameraordner wie "100CANON" oder "101_PANA". Zeichenweise prüfen: Namen
+    // können mit Umlauten beginnen, Byte-Indizes wären dann keine Zeichengrenze.
+    let camera_folder = lower.chars().count() >= 3
+        && lower.chars().take(3).all(|c| c.is_ascii_digit())
+        && lower.chars().skip(3).all(|c| c.is_ascii_alphanumeric() || c == '_');
     if rest.is_empty() || camera_folder || GENERIC_FOLDERS.contains(&lower.as_str()) {
         return String::new();
     }
@@ -264,6 +268,10 @@ mod tests {
         assert_eq!(title_from_folder("DCIM"), "");
         assert_eq!(title_from_folder("Bilder"), "");
         assert_eq!(title_from_folder("Fotobuch Leo"), "Fotobuch Leo");
+        // Regression: Umlaut am Anfang führte zu einem Absturz (Byte-Index mitten im Zeichen).
+        assert_eq!(title_from_folder("Grüße aus Köln"), "Grüße aus Köln");
+        assert_eq!(title_from_folder("Ü"), "Ü");
+        assert_eq!(title_from_folder("Ölmühle"), "Ölmühle");
     }
 
     #[test]

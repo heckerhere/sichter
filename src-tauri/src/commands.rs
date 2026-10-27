@@ -24,6 +24,15 @@ pub struct AppState {
     /// Abbruch-Flag des laufenden Scans; `None`, wenn keiner läuft.
     pub scan: Mutex<Option<Arc<AtomicBool>>>,
     pub previews: Arc<crate::thumbs::preview::PreviewService>,
+    /// Steuerung des laufenden Laufs (Ausführen, Probelauf, Undo).
+    pub run: Mutex<Option<RunControl>>,
+}
+
+#[derive(Clone)]
+pub struct RunControl {
+    pub run_id: i64,
+    pub cancel: Arc<AtomicBool>,
+    pub pause: Arc<AtomicBool>,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -343,6 +352,374 @@ pub fn media_protocol(app: &AppHandle, request: &tauri::http::Request<Vec<u8>>) 
         .expect("gültige Antwort")
 }
 
+// --- Planer und Läufe -------------------------------------------------------
+
+use crate::journal::{self, Exec, RunReport};
+use crate::plan::{self, NewRun, ReorganizeParams, RunKind};
+
+fn dry_run_mode(conn: &rusqlite::Connection) -> bool {
+    conn.query_row("SELECT value FROM setting WHERE key = 'runs.dry_run'", [], |r| r.get::<_, String>(0))
+        .map(|v| v != "0")
+        .unwrap_or(true)
+}
+
+#[tauri::command]
+pub fn runs_dry_run_mode(state: State<'_, AppState>) -> CmdResult<bool> {
+    Ok(dry_run_mode(&*db(&state)?))
+}
+
+#[tauri::command]
+pub fn runs_set_dry_run_mode(state: State<'_, AppState>, enabled: bool) -> CmdResult<()> {
+    db(&state)?
+        .execute(
+            "INSERT INTO setting (key, value) VALUES ('runs.dry_run', ?1) ON CONFLICT (key) DO UPDATE SET value = excluded.value",
+            [if enabled { "1" } else { "0" }],
+        )
+        .map(|_| ())
+        .map_err(err)
+}
+
+#[derive(Serialize)]
+pub struct TemplatePreview {
+    error: Option<String>,
+    samples: Vec<(String, String)>,
+}
+
+/// Live-Vorschau der Vorlage mit Beispielpfaden.
+#[tauri::command]
+pub fn plan_template_preview(state: State<'_, AppState>, params: ReorganizeParams) -> CmdResult<TemplatePreview> {
+    Ok(match plan::template_samples(&*db(&state)?, &params, 8) {
+        Ok(samples) => TemplatePreview { error: None, samples },
+        Err(e) => TemplatePreview { error: Some(e.to_string()), samples: Vec::new() },
+    })
+}
+
+fn store_plan(state: &State<'_, AppState>, kind: RunKind, title: &str, target: Option<i64>, params: &impl Serialize, planned: plan::Result<(Vec<plan::PlannedOp>, plan::Summary)>) -> CmdResult<i64> {
+    let (ops, summary) = planned.map_err(err)?;
+    let db = db(state)?;
+    let meta = NewRun { kind, title, target_root_id: target, dry_run: dry_run_mode(&db) };
+    plan::store(&db, &meta, params, &ops, &summary).map_err(err)
+}
+
+#[tauri::command]
+pub fn plan_reorganize(state: State<'_, AppState>, params: ReorganizeParams) -> CmdResult<i64> {
+    let planned = plan::plan_reorganize(&*db(&state)?, &params);
+    let title = if params.mode == plan::Mode::Copy { "Umsortieren (Kopieren)" } else { "Umsortieren" };
+    store_plan(&state, RunKind::Reorganize, title, Some(params.target_root_id), &params, planned)
+}
+
+#[tauri::command]
+pub fn plan_rejects(state: State<'_, AppState>, to_trash: bool, approved_groups: Vec<i64>) -> CmdResult<i64> {
+    if to_trash {
+        let planned = plan::plan_rejects_to_trash(&*db(&state)?, &approved_groups);
+        store_plan(&state, RunKind::RejectsToTrash, "Ausschuss in den Papierkorb", None, &approved_groups, planned)
+    } else {
+        let planned = plan::plan_rejects_to_folder(&*db(&state)?);
+        store_plan(&state, RunKind::RejectsToFolder, "Ausschuss nach _Aussortiert", None, &(), planned)
+    }
+}
+
+#[tauri::command]
+pub fn plan_dupes(state: State<'_, AppState>, hashes: Vec<String>, to_trash: bool) -> CmdResult<i64> {
+    let planned = plan::plan_dupes(&*db(&state)?, &hashes, to_trash);
+    let (kind, title) =
+        if to_trash { (RunKind::DupesToTrash, "Doppelte Dateien in den Papierkorb") } else { (RunKind::DupesToFolder, "Doppelte Dateien nach _Duplikate") };
+    store_plan(&state, kind, title, None, &hashes, planned)
+}
+
+#[tauri::command]
+pub fn run_discard(state: State<'_, AppState>, run_id: i64) -> CmdResult<()> {
+    plan::discard(&*db(&state)?, run_id).map_err(err)
+}
+
+#[derive(Serialize)]
+pub struct RunOpRow {
+    seq: i64,
+    op: String,
+    src: Option<String>,
+    dst: Option<String>,
+    size: Option<i64>,
+    status: String,
+    error: Option<String>,
+    keep_path: Option<String>,
+}
+
+#[derive(Serialize)]
+pub struct RunDetails {
+    id: i64,
+    kind: String,
+    title: String,
+    status: String,
+    dry_run: bool,
+    created_at: String,
+    finished_at: Option<String>,
+    log_path: Option<String>,
+    summary: serde_json::Value,
+    files: usize,
+    mkdirs: usize,
+    counts: std::collections::BTreeMap<String, usize>,
+    before: std::collections::BTreeMap<String, usize>,
+    after: std::collections::BTreeMap<String, usize>,
+    /// Erste Operationen für die Liste (vollständig im Protokoll).
+    ops: Vec<RunOpRow>,
+    total_ops: usize,
+}
+
+#[tauri::command]
+pub fn run_details(state: State<'_, AppState>, run_id: i64) -> CmdResult<RunDetails> {
+    let db = db(&state)?;
+    let (kind, title, status, dry_run, created_at, finished_at, log_path, summary): (String, String, String, bool, String, Option<String>, Option<String>, String) = db
+        .query_row(
+            "SELECT kind, title, status, dry_run, created_at, finished_at, log_path, summary FROM run WHERE id = ?1",
+            [run_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)),
+        )
+        .map_err(|_| "Lauf nicht gefunden".to_string())?;
+    let mut stmt = db
+        .prepare("SELECT seq, op, src, dst, size, status, error, keep_path FROM operation WHERE run_id = ?1 ORDER BY seq")
+        .map_err(err)?;
+    let all: Vec<RunOpRow> = stmt
+        .query_map([run_id], |r| {
+            Ok(RunOpRow { seq: r.get(0)?, op: r.get(1)?, src: r.get(2)?, dst: r.get(3)?, size: r.get(4)?, status: r.get(5)?, error: r.get(6)?, keep_path: r.get(7)? })
+        })
+        .map_err(err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(err)?;
+    let (before, after) = plan::folder_counts(&all.iter().map(|o| (o.op.clone(), o.src.clone(), o.dst.clone())).collect::<Vec<_>>());
+    let mut counts = std::collections::BTreeMap::new();
+    for o in &all {
+        *counts.entry(format!("{}:{}", o.op, o.status)).or_insert(0) += 1;
+    }
+    let files = all.iter().filter(|o| o.op != "mkdir").count();
+    let total_ops = all.len();
+    // Interessante Operationen zuerst: Fehler, dann Dateioperationen.
+    let mut ops = all;
+    ops.sort_by_key(|o| (o.status != "failed", o.op == "mkdir", o.seq));
+    // Papierkorb-Läufe nie kürzen: Die Bestätigung muss jede Datei zeigen.
+    if !kind.ends_with("to_trash") {
+        ops.truncate(500);
+    }
+    Ok(RunDetails {
+        id: run_id,
+        kind,
+        title,
+        status,
+        dry_run,
+        created_at,
+        finished_at,
+        log_path,
+        summary: serde_json::from_str(&summary).unwrap_or_default(),
+        files,
+        mkdirs: total_ops - files,
+        counts,
+        before,
+        after,
+        ops,
+        total_ops,
+    })
+}
+
+#[derive(Serialize)]
+pub struct RunListItem {
+    id: i64,
+    kind: String,
+    title: String,
+    status: String,
+    dry_run: bool,
+    created_at: String,
+    finished_at: Option<String>,
+    files: i64,
+    done: i64,
+    failed: i64,
+    undone: i64,
+    log_path: Option<String>,
+}
+
+#[tauri::command]
+pub fn runs_list(state: State<'_, AppState>) -> CmdResult<Vec<RunListItem>> {
+    let db = db(&state)?;
+    let mut stmt = db
+        .prepare(
+            "SELECT r.id, r.kind, r.title, r.status, r.dry_run, r.created_at, r.finished_at, r.log_path,
+                sum(o.op != 'mkdir'), sum(o.op != 'mkdir' AND o.status = 'done'), sum(o.status = 'failed'), sum(o.op != 'mkdir' AND o.status = 'undone')
+             FROM run r LEFT JOIN operation o ON o.run_id = r.id GROUP BY r.id ORDER BY r.id DESC",
+        )
+        .map_err(err)?;
+    stmt.query_map([], |r| {
+        Ok(RunListItem {
+            id: r.get(0)?,
+            kind: r.get(1)?,
+            title: r.get(2)?,
+            status: r.get(3)?,
+            dry_run: r.get(4)?,
+            created_at: r.get(5)?,
+            finished_at: r.get(6)?,
+            log_path: r.get(7)?,
+            files: r.get::<_, Option<i64>>(8)?.unwrap_or(0),
+            done: r.get::<_, Option<i64>>(9)?.unwrap_or(0),
+            failed: r.get::<_, Option<i64>>(10)?.unwrap_or(0),
+            undone: r.get::<_, Option<i64>>(11)?.unwrap_or(0),
+        })
+    })
+    .map_err(err)?
+    .collect::<rusqlite::Result<_>>()
+    .map_err(err)
+}
+
+#[derive(Clone, Serialize)]
+#[serde(tag = "status", rename_all = "lowercase")]
+enum RunFinished {
+    Ok { run_id: i64, action: &'static str, report: RunReport },
+    Error { run_id: i64, action: &'static str, message: String },
+}
+
+/// Startet Probelauf, Ausführung oder Undo im Hintergrund.
+fn spawn_run(app: AppHandle, state: &State<'_, AppState>, run_id: i64, action: &'static str, confirmed_files: usize) -> CmdResult<()> {
+    let control = {
+        let mut slot = state.run.lock().map_err(err)?;
+        if slot.is_some() {
+            return Err("Es läuft bereits ein anderer Lauf".into());
+        }
+        if state.scan.lock().map_err(err)?.is_some() {
+            return Err("Bitte warte, bis der Scan abgeschlossen ist".into());
+        }
+        let control = RunControl { run_id, cancel: Arc::new(AtomicBool::new(false)), pause: Arc::new(AtomicBool::new(false)) };
+        *slot = Some(control.clone());
+        control
+    };
+    std::thread::Builder::new()
+        .name("run".into())
+        .spawn(move || {
+            let state = app.state::<AppState>();
+            let result = (|| -> Result<RunReport, String> {
+                let conn = crate::db::open(&state.db_path).map_err(err)?;
+                let last = Mutex::new(Instant::now() - Duration::from_secs(1));
+                let progress = |p: journal::RunProgress| {
+                    if let Ok(mut l) = last.lock()
+                        && (l.elapsed() >= Duration::from_millis(100) || p.done + 1 >= p.total)
+                    {
+                        *l = Instant::now();
+                        let _ = app.emit("run-progress", p);
+                    }
+                };
+                let ex = Exec { app: &state.data_dir, cancel: &control.cancel, pause: &control.pause, progress: &progress, simulate_crash_after: None };
+                match action {
+                    "dry" => journal::dry_run(&conn, run_id, &ex),
+                    "execute" => journal::execute(&conn, run_id, confirmed_files, &ex),
+                    _ => journal::undo(&conn, run_id, &ex),
+                }
+                .map_err(err)
+            })();
+            if let Ok(mut slot) = state.run.lock() {
+                *slot = None;
+            }
+            let payload = match result {
+                Ok(report) => RunFinished::Ok { run_id, action, report },
+                Err(message) => RunFinished::Error { run_id, action, message },
+            };
+            let _ = app.emit("run-finished", payload);
+        })
+        .map_err(err)?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn run_dry(app: AppHandle, state: State<'_, AppState>, run_id: i64) -> CmdResult<()> {
+    spawn_run(app, &state, run_id, "dry", 0)
+}
+
+/// Echte Ausführung. Nur bei ausgeschaltetem Dry-Run-Modus und mit der
+/// Dateianzahl, die der Nutzer im Bestätigungsdialog gesehen hat.
+#[tauri::command]
+pub fn run_execute(app: AppHandle, state: State<'_, AppState>, run_id: i64, confirmed_files: usize) -> CmdResult<()> {
+    if dry_run_mode(&*db(&state)?) {
+        return Err("Der Dry-Run-Modus ist aktiv. Schalte ihn zum Ausführen in den Einstellungen aus.".into());
+    }
+    spawn_run(app, &state, run_id, "execute", confirmed_files)
+}
+
+#[tauri::command]
+pub fn run_undo(app: AppHandle, state: State<'_, AppState>, run_id: i64) -> CmdResult<()> {
+    spawn_run(app, &state, run_id, "undo", 0)
+}
+
+#[tauri::command]
+pub fn run_pause(state: State<'_, AppState>, paused: bool) -> CmdResult<()> {
+    if let Some(c) = state.run.lock().map_err(err)?.as_ref() {
+        c.pause.store(paused, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn run_cancel(state: State<'_, AppState>) -> CmdResult<()> {
+    if let Some(c) = state.run.lock().map_err(err)?.as_ref() {
+        c.cancel.store(true, Ordering::Relaxed);
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct RunState {
+    running: Option<i64>,
+    paused: bool,
+    open_plans: i64,
+    last_run: Option<String>,
+}
+
+#[tauri::command]
+pub fn run_state(state: State<'_, AppState>) -> CmdResult<RunState> {
+    let running = state.run.lock().map_err(err)?.as_ref().map(|c| (c.run_id, c.pause.load(Ordering::Relaxed)));
+    let db = db(&state)?;
+    let open_plans = db.query_row("SELECT count(*) FROM run WHERE status IN ('planned', 'aborted')", [], |r| r.get(0)).map_err(err)?;
+    let last_run = db
+        .query_row("SELECT finished_at FROM run WHERE finished_at IS NOT NULL ORDER BY finished_at DESC LIMIT 1", [], |r| r.get(0))
+        .ok();
+    Ok(RunState { running: running.map(|r| r.0), paused: running.is_some_and(|r| r.1), open_plans, last_run })
+}
+
+/// Öffnet das Protokoll eines Laufs im Standardprogramm.
+#[tauri::command]
+pub fn run_open_log(app: AppHandle, state: State<'_, AppState>, run_id: i64) -> CmdResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let path: Option<String> = db(&state)?.query_row("SELECT log_path FROM run WHERE id = ?1", [run_id], |r| r.get(0)).map_err(err)?;
+    let path = path.ok_or("Für diesen Lauf gibt es noch kein Protokoll")?;
+    app.opener().open_path(path, None::<&str>).map_err(err)
+}
+
+#[derive(Serialize)]
+pub struct RejectGroup {
+    group_id: i64,
+    thumb: Option<String>,
+    files: Vec<(String, i64)>,
+}
+
+/// Als Ausschuss markierte Gruppen mit allen Dateien (für die Einzelfreigabe).
+#[tauri::command]
+pub fn rejects_list(state: State<'_, AppState>) -> CmdResult<Vec<RejectGroup>> {
+    let db = db(&state)?;
+    let mut stmt = db
+        .prepare(
+            "SELECT a.group_id, r.path || '/' || a.rel_path, a.size,
+                (SELECT t.hash FROM asset x JOIN thumb t ON t.hash = x.hash AND t.status = 'ok' WHERE x.group_id = a.group_id LIMIT 1)
+             FROM asset a JOIN library_root r ON r.id = a.root_id JOIN rating rt ON rt.group_id = a.group_id
+             WHERE rt.flag = 'reject' AND r.locked = 0 ORDER BY a.group_id, a.rel_path",
+        )
+        .map_err(err)?;
+    let mut out: Vec<RejectGroup> = Vec::new();
+    let rows = stmt
+        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, Option<String>>(3)?)))
+        .map_err(err)?;
+    for row in rows {
+        let (g, path, size, thumb) = row.map_err(err)?;
+        match out.last_mut() {
+            Some(last) if last.group_id == g => last.files.push((path, size)),
+            _ => out.push(RejectGroup { group_id: g, thumb, files: vec![(path, size)] }),
+        }
+    }
+    Ok(out)
+}
+
 #[tauri::command]
 pub fn dupes_analyze(state: State<'_, AppState>) -> CmdResult<crate::dupes::Analysis> {
     crate::dupes::analyze_db(&*db(&state)?).map_err(err)
@@ -384,6 +761,9 @@ pub fn start_scan(app: AppHandle, state: State<'_, AppState>, root_ids: Option<V
         let mut slot = state.scan.lock().map_err(err)?;
         if slot.is_some() {
             return Err("Es läuft bereits ein Scan".into());
+        }
+        if state.run.lock().map_err(err)?.is_some() {
+            return Err("Während ein Lauf Dateien verändert, ist kein Scan möglich".into());
         }
         let cancel = Arc::new(AtomicBool::new(false));
         *slot = Some(cancel.clone());

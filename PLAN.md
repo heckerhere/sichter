@@ -267,7 +267,7 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [x] Gestapelter Balken pro Ordner nach Typ
 - [x] Treemap/Sunburst mit Zoom in Unterordner
 - [x] Top-Listen größte Ordner und Dateien
-- [ ] Aktualisierung nach Scan und Lauf — nach Scan erledigt, nach Lauf folgt mit Phase 6
+- [x] Aktualisierung nach Scan und Lauf
 - [x] Test: Summen gegen Fixture
 
 ### Phase 3: Duplikate
@@ -301,27 +301,27 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [x] Performance-Test 500 Bilder
 
 ### Phase 6: Planer und sichere Ausführung
-- [ ] Sicherheitsmodell-Review (Abschnitt 3) gegen Code
-- [ ] Vorlagen-Editor mit Platzhaltern und Live-Vorschau
-- [ ] Separate Video-Vorlage (optional)
-- [ ] Schalter Verschieben (Standard) / Kopieren
-- [ ] Speicherplatzprüfung vor Kopieren
-- [ ] Dateinamen-Bereinigung (Windows-kompatibel)
-- [ ] Plan-Erzeugung inkl. Gruppen (RAW+JPEG+Sidecars, Live Photos)
-- [ ] Konfliktauflösung (gleicher Hash, Suffix)
-- [ ] Vorschau-Baum mit Zählern und Konfliktliste
-- [ ] Dry-Run-Modus
-- [ ] Journal (geplant/erledigt) vor und nach jeder Operation
-- [ ] Ausführung mit Fortschritt, Pause, Abbruch
-- [ ] Verifiziertes Cross-Volume-Move
-- [ ] Undo pro Lauf
-- [ ] Wiederaufnahme nach Absturz
-- [ ] Ausschuss nach `_Aussortiert` verschieben
-- [ ] Papierkorb-Aktion mit Einzelfreigabe und Bestätigungsdialog
-- [ ] Duplikat-Aktionen über Planer
-- [ ] Verlaufsansicht aller Läufe
-- [ ] CSV/JSON-Log pro Lauf
-- [ ] Alle Tests aus Abschnitt 9 grün
+- [x] Sicherheitsmodell-Review (Abschnitt 3) gegen Code
+- [x] Vorlagen-Editor mit Platzhaltern und Live-Vorschau
+- [x] Separate Video-Vorlage (optional)
+- [x] Schalter Verschieben (Standard) / Kopieren
+- [x] Speicherplatzprüfung vor Kopieren
+- [x] Dateinamen-Bereinigung (Windows-kompatibel)
+- [x] Plan-Erzeugung inkl. Gruppen (RAW+JPEG+Sidecars, Live Photos)
+- [x] Konfliktauflösung (gleicher Hash, Suffix)
+- [x] Vorschau-Baum mit Zählern und Konfliktliste
+- [x] Dry-Run-Modus
+- [x] Journal (geplant/erledigt) vor und nach jeder Operation
+- [x] Ausführung mit Fortschritt, Pause, Abbruch
+- [x] Verifiziertes Cross-Volume-Move
+- [x] Undo pro Lauf
+- [x] Wiederaufnahme nach Absturz
+- [x] Ausschuss nach `_Aussortiert` verschieben
+- [x] Papierkorb-Aktion mit Einzelfreigabe und Bestätigungsdialog
+- [x] Duplikat-Aktionen über Planer
+- [x] Verlaufsansicht aller Läufe
+- [x] CSV/JSON-Log pro Lauf
+- [x] Alle Tests aus Abschnitt 9 grün — außer XMP-Export (gehört zu Phase 8)
 
 ### Phase 7: Windows und Feinschliff
 - [ ] Windows-Sidecars (exiftool, ffmpeg, ffprobe)

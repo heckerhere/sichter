@@ -16,7 +16,9 @@ export const sections = [
 
 export const router = createRouter({
   history: createWebHashHistory(),
-  routes: sections.map((s) => {
+  routes: [
+    { path: "/plan/:id", component: () => import("./views/PlanView.vue"), meta: { title: "Plan" } },
+    ...sections.map((s) => {
     // Ansichten mit großen Abhängigkeiten (ECharts) werden erst beim Öffnen geladen.
     const views: Record<string, unknown> = {
       "/": LibraryView,
@@ -24,9 +26,12 @@ export const router = createRouter({
       "/duplikate": () => import("./views/DuplicatesView.vue"),
       "/events": () => import("./views/EventsView.vue"),
       "/sichten": () => import("./views/CullView.vue"),
+      "/umsortieren": () => import("./views/ReorganizeView.vue"),
+      "/verlauf": () => import("./views/HistoryView.vue"),
       "/einstellungen": SettingsView,
     };
     const component = views[s.path] ?? PlaceholderView;
     return { path: s.path, component: component as never, meta: { title: s.name, phase: "phase" in s ? s.phase : undefined } };
-  }),
+    }),
+  ],
 });

@@ -1,11 +1,36 @@
 <script setup lang="ts">
 // Duplikate (PLAN.md 6.4). Nur Anzeige und Auswahl, keine Dateioperationen.
 import { computed, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { api, thumbUrl, type DupeAnalysis, type FileGroup, type FolderInfo } from "../api";
 import { useLibraryStore } from "../stores/library";
 import { fileName, formatBytes, formatDate, formatInt } from "../format";
 
 const lib = useLibraryStore();
+const router = useRouter();
+const selected = ref(new Set<string>());
+const selectedSize = computed(() => (data.value?.file_groups ?? []).filter((g) => selected.value.has(g.hash)).reduce((s, g) => s + g.redundant_size, 0));
+
+function toggle(hash: string) {
+  const next = new Set(selected.value);
+  if (next.has(hash)) next.delete(hash);
+  else next.add(hash);
+  selected.value = next;
+}
+
+function selectAll() {
+  const all = data.value?.file_groups.map((g) => g.hash) ?? [];
+  selected.value = selected.value.size === all.length ? new Set() : new Set(all);
+}
+
+async function plan(toTrash: boolean) {
+  try {
+    const id = await api.planDupes([...selected.value], toTrash);
+    await router.push(`/plan/${id}`);
+  } catch (e) {
+    error.value = String(e);
+  }
+}
 const data = ref<DupeAnalysis | null>(null);
 const loading = ref(false);
 const error = ref<string | null>(null);
@@ -61,8 +86,8 @@ async function choose(g: FileGroup, assetId: number) {
       <span v-if="data" class="text-stone-500 tabular-nums dark:text-stone-400">{{ formatBytes(data.redundant_size) }} in redundanten Kopien</span>
     </header>
     <p class="mt-2 max-w-2xl text-stone-500 dark:text-stone-400">
-      Hier wird nichts gelöscht oder verschoben. Du kannst festlegen, welche Kopie bleiben soll. Die Auswahl wird gespeichert und erst im
-      Umsortieren-Planer verwendet, mit Vorschau und Bestätigung.
+      Hier wird nichts direkt gelöscht oder verschoben. Lege fest, welche Kopie bleiben soll, wähle Gruppen aus und erstelle einen Plan. Den siehst du vollständig,
+      bevor etwas passiert. In den Papierkorb kommt eine Kopie nur, wenn die bleibende Kopie direkt vorher noch einmal geprüft wurde.
     </p>
 
     <p v-if="error" class="mt-4 rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-500/10 dark:text-red-300">{{ error }}</p>
@@ -83,12 +108,34 @@ async function choose(g: FileGroup, assetId: number) {
 
       <!-- Doppelte Dateien -->
       <div v-if="tab === 'files'" class="mt-4 space-y-3">
+        <div v-if="data.file_groups.length" class="sticky top-0 z-10 flex flex-wrap items-center gap-3 rounded-lg border border-stone-200 bg-stone-50/95 px-4 py-2 backdrop-blur dark:border-stone-800 dark:bg-stone-950/95">
+          <button class="text-stone-600 underline-offset-2 hover:underline dark:text-stone-400" @click="selectAll">
+            {{ selected.size === data.file_groups.length ? "Auswahl aufheben" : "Alle auswählen" }}
+          </button>
+          <span class="text-stone-500 tabular-nums">{{ selected.size }} ausgewählt · {{ formatBytes(selectedSize) }} einsparbar</span>
+          <span class="ml-auto text-xs text-stone-400">Behalten wird die markierte Kopie</span>
+          <button
+            :disabled="!selected.size"
+            class="rounded-md border border-stone-300 px-3 py-1 hover:bg-stone-100 disabled:opacity-40 dark:border-stone-700 dark:hover:bg-stone-800"
+            @click="plan(false)"
+          >
+            Andere Kopien nach _Duplikate …
+          </button>
+          <button
+            :disabled="!selected.size"
+            class="rounded-md border border-red-300 px-3 py-1 text-red-700 hover:bg-red-50 disabled:opacity-40 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950"
+            @click="plan(true)"
+          >
+            Andere Kopien in den Papierkorb …
+          </button>
+        </div>
         <p v-if="!data.file_groups.length" class="py-10 text-center text-stone-500">Keine doppelten Dateien gefunden.</p>
         <article
           v-for="g in data.file_groups.slice(0, shown)"
           :key="g.hash"
           class="flex gap-4 rounded-lg border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900"
         >
+          <input type="checkbox" class="mt-1 size-4 shrink-0 accent-stone-800 dark:accent-stone-200" :checked="selected.has(g.hash)" aria-label="Für einen Plan auswählen" @change="toggle(g.hash)" />
           <div class="size-16 shrink-0 overflow-hidden rounded-md bg-stone-200 dark:bg-stone-800">
             <img v-if="g.thumb" :src="thumbUrl(g.thumb)" loading="lazy" class="size-full object-cover" />
           </div>

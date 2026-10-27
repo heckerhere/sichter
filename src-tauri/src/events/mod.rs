@@ -368,6 +368,21 @@ pub fn list_events(conn: &Connection) -> rusqlite::Result<Vec<EventCard>> {
         .collect())
 }
 
+/// Zeit, Kamera und Event je Gruppe (für den Planer).
+#[derive(Debug, Clone)]
+pub struct GroupContext {
+    pub time: Option<NaiveDateTime>,
+    pub camera: String,
+    pub event_id: Option<i64>,
+}
+
+pub fn group_contexts(conn: &Connection) -> rusqlite::Result<HashMap<i64, GroupContext>> {
+    Ok(load_rows(conn, None)?
+        .into_iter()
+        .map(|r| (r.group_id, GroupContext { time: r.effective, camera: r.camera, event_id: r.event_id }))
+        .collect())
+}
+
 /// Alle Aufnahmen zeitlich sortiert (Sichten ohne Event-Auswahl).
 pub fn all_items(conn: &Connection) -> rusqlite::Result<Vec<GroupRow>> {
     let mut rows = load_rows(conn, None)?;

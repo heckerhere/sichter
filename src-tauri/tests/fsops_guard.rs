@@ -81,6 +81,29 @@ fn no_filesystem_writes_outside_fsops() {
     );
 }
 
+/// `OperationId` und `TrashToken` entstehen nur im Journal: Ohne Journal-Eintrag
+/// keine Dateioperation, ohne bestätigten Plan kein Papierkorb.
+#[test]
+fn tokens_are_only_minted_by_the_journal() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut files = Vec::new();
+    rust_files(&src, &mut files);
+    let mut violations = Vec::new();
+    for file in &files {
+        let allowed = file.starts_with(src.join("journal")) || file.starts_with(src.join("fsops"));
+        if allowed {
+            continue;
+        }
+        let text = std::fs::read_to_string(file).unwrap();
+        for (number, line) in text.lines().enumerate() {
+            if line.contains("from_journal(") || line.contains("from_confirmed_plan") {
+                violations.push(format!("{}:{}: {}", file.display(), number + 1, line.trim()));
+            }
+        }
+    }
+    assert!(violations.is_empty(), "Token außerhalb des Journals erzeugt:\n{}", violations.join("\n"));
+}
+
 #[test]
 fn guard_detects_violations() {
     // Selbsttest: Die Muster greifen bei typischen Schreibaufrufen.

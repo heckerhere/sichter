@@ -39,10 +39,14 @@ pub fn run() {
             let data_dir = AppDataDir::init(app.path().app_data_dir()?)?;
             let db_path = data_dir.join("sichter.db")?;
             let db = db::open(&db_path)?;
+            // Läufe, die beim letzten Beenden noch liefen, gelten als abgebrochen
+            // und können fortgesetzt oder rückgängig gemacht werden.
+            journal::recover_interrupted(&db)?;
             let tools = tools::Tools::resolve(app.path().resource_dir().ok().as_deref());
             let previews = thumbs::preview::PreviewService::new(data_dir.clone(), tools.clone());
             app.manage(AppState {
                 previews,
+                run: Mutex::new(None),
                 data_dir,
                 db_path,
                 db: Mutex::new(db),
@@ -84,6 +88,23 @@ pub fn run() {
             commands::reset_rating,
             commands::previews_prepare,
             commands::open_in_default_app,
+            commands::runs_dry_run_mode,
+            commands::runs_set_dry_run_mode,
+            commands::plan_template_preview,
+            commands::plan_reorganize,
+            commands::plan_rejects,
+            commands::plan_dupes,
+            commands::run_discard,
+            commands::run_details,
+            commands::runs_list,
+            commands::run_dry,
+            commands::run_execute,
+            commands::run_undo,
+            commands::run_pause,
+            commands::run_cancel,
+            commands::run_state,
+            commands::run_open_log,
+            commands::rejects_list,
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Starten der App");

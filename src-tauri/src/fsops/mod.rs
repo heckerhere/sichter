@@ -53,7 +53,7 @@ pub type Result<T> = std::result::Result<T, FsOpError>;
 pub struct OperationId(i64);
 
 impl OperationId {
-    #[allow(dead_code)] // Aufrufer ist das Journal (Phase 6).
+    /// Nur das Journal ruft das auf (per Guard-Test geprüft).
     pub(crate) fn from_journal(id: i64) -> Self {
         Self(id)
     }
@@ -71,7 +71,8 @@ pub struct TrashToken {
 }
 
 impl TrashToken {
-    #[allow(dead_code)] // Aufrufer ist der Planer (Phase 6).
+    /// Nur das Journal ruft das auf, für bestätigte Papierkorb-Pläne und Undo
+    /// von Kopien (per Guard-Test geprüft).
     pub(crate) fn from_confirmed_plan() -> Self {
         Self { _private: () }
     }
@@ -163,7 +164,11 @@ pub fn move_verified(
     guard: &PathGuard,
 ) -> Result<MoveKind> {
     preflight(src, dst, expected, guard)?;
-    match rename::rename_noreplace(src, dst) {
+    #[cfg(test)]
+    let renamed = if test_support::force_cross_device() { Err(rename::RenameError::CrossDevice) } else { rename::rename_noreplace(src, dst) };
+    #[cfg(not(test))]
+    let renamed = rename::rename_noreplace(src, dst);
+    match renamed {
         Ok(()) => Ok(MoveKind::Renamed),
         Err(rename::RenameError::AlreadyExists) => Err(FsOpError::DestinationExists(dst.into())),
         Err(rename::RenameError::CrossDevice | rename::RenameError::Unsupported) => {
@@ -175,6 +180,27 @@ pub fn move_verified(
         }
         Err(rename::RenameError::Io(e)) => Err(e.into()),
     }
+}
+
+/// Schließt ein Verschieben über Volume-Grenzen ab, das nach der Kopie und vor
+/// dem Entfernen der Quelle unterbrochen wurde (Absturz, Stromausfall). Die
+/// Quelle wird nur entfernt, wenn Quelle und Ziel beide nachweislich den
+/// erwarteten Inhalt haben.
+pub fn finish_interrupted_move(_op: OperationId, src: &Path, dst: &Path, expected: &FileHash, guard: &PathGuard) -> Result<()> {
+    guard.check(src)?;
+    guard.check(dst)?;
+    match fs::symlink_metadata(src) {
+        Ok(meta) if meta.is_file() => {}
+        _ => return Err(FsOpError::SourceMissing(src.into())),
+    }
+    if hash::hash_file(dst)? != *expected {
+        return Err(FsOpError::CopyVerifyFailed(dst.into()));
+    }
+    if hash::hash_file(src)? != *expected {
+        return Err(FsOpError::SourceChanged(src.into()));
+    }
+    fs::remove_file(src)?;
+    Ok(())
 }
 
 /// Kopiert `src` nach `dst`, ohne zu überschreiben, und prüft die Kopie per Hash.
@@ -206,6 +232,27 @@ pub fn mkdir(_op: OperationId, path: &Path, guard: &PathGuard) -> Result<bool> {
     }
     fs::create_dir(path)?;
     Ok(true)
+}
+
+/// Entfernt einen Ordner nur, wenn er wirklich leer ist (für das Rückgängigmachen
+/// selbst angelegter Ordner). `false`, wenn er nicht leer ist oder fehlt.
+/// Systemdateien wie `.DS_Store` zählen hier als Inhalt: Was nicht leer ist,
+/// bleibt stehen.
+pub fn rmdir_if_empty(_op: OperationId, path: &Path, guard: &PathGuard) -> Result<bool> {
+    guard.check(path)?;
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.is_dir() => {}
+        Ok(_) => return Err(FsOpError::NotADirectory(path.into())),
+        Err(_) => return Ok(false),
+    }
+    if fs::read_dir(path)?.next().is_some() {
+        return Ok(false);
+    }
+    // remove_dir schlägt ohnehin fehl, falls inzwischen etwas hineingekommen ist.
+    match fs::remove_dir(path) {
+        Ok(()) => Ok(true),
+        Err(_) => Ok(false),
+    }
 }
 
 /// Legt `path` in den System-Papierkorb. Endgültiges Löschen gibt es nicht.
@@ -283,6 +330,16 @@ pub(crate) mod test_support {
 
     thread_local! {
         static CORRUPT_NEXT_COPY: Cell<bool> = const { Cell::new(false) };
+        static FORCE_CROSS_DEVICE: Cell<bool> = const { Cell::new(false) };
+    }
+
+    /// Lässt alle Verschiebungen im aktuellen Thread den Cross-Volume-Weg nehmen.
+    pub fn set_force_cross_device(on: bool) {
+        FORCE_CROSS_DEVICE.with(|c| c.set(on));
+    }
+
+    pub(super) fn force_cross_device() -> bool {
+        FORCE_CROSS_DEVICE.with(Cell::get)
     }
 
     pub fn write(path: &Path, bytes: &[u8]) {
@@ -430,6 +487,60 @@ mod tests {
         assert!(matches!(err, FsOpError::CopyVerifyFailed(_)));
         assert!(src.exists());
         assert!(!dst.exists());
+    }
+
+    #[test]
+    fn cross_volume_move_copies_verifies_and_removes_source() {
+        let (dir, src) = setup();
+        let dst = dir.path().join("ziel").join("IMG_0001.JPG");
+        test_support::set_force_cross_device(true);
+        let kind = move_verified(op(), &src, &dst, &hash_bytes(b"jpeg-daten"), &PathGuard::default());
+        test_support::set_force_cross_device(false);
+        assert_eq!(kind.unwrap(), MoveKind::CopiedAcrossVolumes);
+        assert!(!src.exists());
+        assert_eq!(std::fs::read(&dst).unwrap(), b"jpeg-daten");
+    }
+
+    #[test]
+    fn cross_volume_move_with_bad_copy_keeps_source() {
+        let (dir, src) = setup();
+        let dst = dir.path().join("ziel").join("IMG_0001.JPG");
+        test_support::set_force_cross_device(true);
+        test_support::corrupt_next_copy();
+        let err = move_verified(op(), &src, &dst, &hash_bytes(b"jpeg-daten"), &PathGuard::default()).unwrap_err();
+        test_support::set_force_cross_device(false);
+        assert!(matches!(err, FsOpError::CopyVerifyFailed(_)));
+        assert_eq!(std::fs::read(&src).unwrap(), b"jpeg-daten", "Quelle unverändert");
+        assert!(!dst.exists(), "fehlerhafte Kopie entfernt");
+    }
+
+    #[test]
+    fn finishing_interrupted_move_requires_identical_copy() {
+        let (dir, src) = setup();
+        let dst = dir.path().join("ziel").join("IMG_0001.JPG");
+        let h = hash_bytes(b"jpeg-daten");
+        test_support::write(&dst, b"halbe kopie");
+        assert!(matches!(finish_interrupted_move(op(), &src, &dst, &h, &PathGuard::default()), Err(FsOpError::CopyVerifyFailed(_))));
+        assert!(src.exists(), "Quelle bleibt bei abweichender Kopie");
+        test_support::write(&dst, b"jpeg-daten");
+        finish_interrupted_move(op(), &src, &dst, &h, &PathGuard::default()).unwrap();
+        assert!(!src.exists() && dst.exists());
+    }
+
+    #[test]
+    fn rmdir_only_removes_empty_dirs() {
+        let dir = tempfile::tempdir().unwrap();
+        let guard = PathGuard::default();
+        let empty = dir.path().join("leer");
+        let full = dir.path().join("voll");
+        std::fs::create_dir(&empty).unwrap();
+        test_support::write(&full.join(".DS_Store"), b"x");
+        assert!(rmdir_if_empty(op(), &empty, &guard).unwrap());
+        assert!(!empty.exists());
+        assert!(!rmdir_if_empty(op(), &full, &guard).unwrap());
+        assert!(full.join(".DS_Store").exists());
+        assert!(!rmdir_if_empty(op(), &dir.path().join("fehlt"), &guard).unwrap());
+        assert!(matches!(rmdir_if_empty(op(), &full, &PathGuard::new([&full])), Err(FsOpError::Locked(_))));
     }
 
     #[test]

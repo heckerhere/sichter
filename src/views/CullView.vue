@@ -1,12 +1,25 @@
 <script setup lang="ts">
 // Sichten: Event wählen, dann Vollbild-Sichtung.
 import { computed, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { api, type EventsOverview } from "../api";
 import { useLibraryStore } from "../stores/library";
 import { formatInt, formatRange } from "../format";
 import CullLoupe from "../components/CullLoupe.vue";
+import RejectsTrashDialog from "../components/RejectsTrashDialog.vue";
 
 const lib = useLibraryStore();
+const router = useRouter();
+const showTrash = ref(false);
+const error = ref<string | null>(null);
+
+async function rejectsToFolder() {
+  try {
+    await router.push(`/plan/${await api.planRejects(false, [])}`);
+  } catch (e) {
+    error.value = String(e);
+  }
+}
 const data = ref<EventsOverview | null>(null);
 const session = ref<{ eventId: number | null; title: string } | null>(null);
 
@@ -43,6 +56,17 @@ async function close() {
       die Dateien bleiben unverändert.
     </p>
 
+    <div v-if="totals.reject" class="mt-6 flex flex-wrap items-center gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900">
+      <span class="flex-1"><span class="font-medium">{{ totals.reject }} Aufnahmen als Ausschuss markiert.</span> Sie liegen noch an ihrem Ort.</span>
+      <button class="rounded-md bg-stone-900 px-3 py-1.5 text-white hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900" @click="rejectsToFolder">
+        Nach _Aussortiert verschieben …
+      </button>
+      <button class="rounded-md border border-red-300 px-3 py-1.5 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950" @click="showTrash = true">
+        In den Papierkorb …
+      </button>
+    </div>
+    <p v-if="error" class="mt-3 rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-500/10 dark:text-red-300">{{ error }}</p>
+
     <button
       v-if="totals.count"
       class="mt-6 flex w-full items-center gap-4 rounded-lg border border-stone-200 bg-white px-4 py-3 text-left hover:border-stone-300 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-700"
@@ -77,6 +101,7 @@ async function close() {
       Noch keine Aufnahmen. Füge in der Bibliothek einen Ordner hinzu.
     </p>
 
+    <RejectsTrashDialog v-if="showTrash" @close="showTrash = false" @planned="(id) => router.push(`/plan/${id}`)" />
     <CullLoupe v-if="session" :event-id="session.eventId" :title="session.title" @close="close" />
   </section>
 </template>

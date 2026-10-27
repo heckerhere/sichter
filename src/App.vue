@@ -5,13 +5,16 @@ import NavIcon from "./components/NavIcon.vue";
 import ScanStatus from "./components/ScanStatus.vue";
 import { useAppStore } from "./stores/app";
 import { useLibraryStore } from "./stores/library";
+import { useRunsStore } from "./stores/runs";
 import { formatInt } from "./format";
 
 const app = useAppStore();
 const lib = useLibraryStore();
+const runs = useRunsStore();
 onMounted(() => {
   app.load();
   lib.init();
+  runs.init();
 });
 </script>
 
@@ -39,16 +42,22 @@ onMounted(() => {
       <span class="tabular-nums">{{ formatInt(lib.stats?.files ?? 0) }} Dateien</span>
       <ScanStatus />
       <template v-if="!lib.scanning">
-        <span>Keine offenen Pläne</span>
-        <span>Noch kein Lauf</span>
+        <RouterLink v-if="runs.state?.running" :to="`/plan/${runs.state.running}`" class="font-medium text-sky-700 dark:text-sky-400">
+          Lauf {{ runs.state.running }} {{ runs.state.paused ? "pausiert" : "läuft" }}<template v-if="runs.progress"> · {{ runs.progress.done }} / {{ runs.progress.total }}</template>
+        </RouterLink>
+        <RouterLink to="/verlauf" class="hover:text-stone-800 dark:hover:text-stone-200">
+          {{ runs.state?.open_plans ? `${runs.state.open_plans} offene Pläne` : "Keine offenen Pläne" }}
+        </RouterLink>
+        <span>{{ runs.state?.last_run ? `Letzter Lauf ${runs.state.last_run.slice(0, 16).replace("T", " ")} UTC` : "Noch kein Lauf" }}</span>
       </template>
-      <span
+      <RouterLink
         v-if="app.dryRun"
+        to="/einstellungen"
         class="ml-auto shrink-0 rounded bg-amber-100 px-2 py-0.5 font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
         title="Pläne werden nur simuliert, es wird keine Datei verändert."
       >
         Dry-Run aktiv
-      </span>
+      </RouterLink>
     </footer>
   </div>
 </template>
