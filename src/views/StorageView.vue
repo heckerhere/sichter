@@ -125,7 +125,11 @@ const views = [
             </div>
             <div>
               <dt class="text-stone-600 dark:text-stone-400">Als Ausschuss markiert</dt>
-              <dd class="text-stone-400">wird ab dem Sichten berechnet</dd>
+              <dd class="font-medium tabular-nums">{{ formatBytes(summary?.reject_size ?? 0) }}</dd>
+              <dd class="text-[11px] text-stone-400">
+                {{ formatInt(summary?.reject_count ?? 0) }} Aufnahmen inkl. RAW und Sidecars ·
+                <RouterLink to="/sichten" class="underline underline-offset-2">sichten</RouterLink>
+              </dd>
             </div>
             <div v-if="summary && summary.raw_pair_count" class="border-t border-stone-100 pt-3 dark:border-stone-800">
               <dt class="text-stone-600 dark:text-stone-400">JPEG-Anteil bei RAW+JPEG-Paaren</dt>

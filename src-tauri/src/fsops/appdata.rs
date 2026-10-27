@@ -49,8 +49,12 @@ impl AppDataDir {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
+        // Eindeutiger Temp-Name: Parallele Schreiber derselben Datei (z. B. zwei
+        // gleichzeitige Vorschau-Anfragen) dürfen sich nicht in die Quere kommen.
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let mut tmp_name = path.file_name().unwrap_or_default().to_os_string();
-        tmp_name.push(".tmp");
+        tmp_name.push(format!(".{}-{n}.tmp", std::process::id()));
         let tmp = path.with_file_name(tmp_name);
         fs::write(&tmp, bytes)?;
         fs::rename(&tmp, &path)?;
@@ -71,6 +75,22 @@ mod tests {
         assert!(app.join(dir.path()).is_err());
         assert!(app.join("").is_err());
         assert!(app.join("cache/thumbs").is_ok());
+    }
+
+    #[test]
+    fn parallel_writers_do_not_collide() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = AppDataDir::init(dir.path().join("app")).unwrap();
+        std::thread::scope(|s| {
+            for i in 0..16u8 {
+                let app = &app;
+                s.spawn(move || app.write_file("cache/same.bin", &[i; 4096]).unwrap());
+            }
+        });
+        let bytes = fs::read(app.join("cache/same.bin").unwrap()).unwrap();
+        assert!(bytes.iter().all(|b| *b == bytes[0]), "Datei ist ein Gemisch mehrerer Schreiber");
+        let leftovers = fs::read_dir(app.join("cache").unwrap()).unwrap().count();
+        assert_eq!(leftovers, 1, "keine Temp-Dateien übrig");
     }
 
     #[test]

@@ -1,5 +1,15 @@
 # Changelog
 
+## Phase 5: Sichten (2026-10-27)
+
+- **Große Vorschauen** (`thumbs/preview.rs`): 2560 px JPEG im App-Cache `previews/`. Bei RAW+JPEG kommt die Vorschau aus dem Kamera-JPEG, bei reinen RAWs aus dem größten eingebetteten Preview. Erzeugung bei Bedarf über das Protokoll `preview://`, jede Vorschau nur einmal gleichzeitig (parallele Anfragen warten). Beim Öffnen einer Sichtung werden alle Vorschauen im Hintergrund vorbereitet, vom aktuellen Bild nach außen, mit 3 Threads. Eine neue Sichtung beendet die vorige Vorbereitung.
+- **Videos** über `media://<asset_id>` mit HTTP-Range (spulbar, Blöcke à 4 MB). Ausgeliefert werden nur indexierte Videos, nur lesend. Kann der Webview den Codec nicht abspielen, erscheint „Im Standardplayer öffnen“.
+- **Vollbild-Sichtung:** ← → blättern, P behalten, X Ausschuss, 1–5 Sterne, 0 keine Sterne, U zurücksetzen, C Vergleich (1–4 Bilder, Tab wechselt den Fokus), Leertaste Video, Esc. Optional „Nach P/X weiter“. Thumbnail erscheint sofort, die große Vorschau darüber, Nachbarn werden vorgeladen. Filmstreifen mit Markierungen, Filter Alle / Unbewertet / Behalten / Ausschuss / 3+ Sterne. Die gefilterte Liste ist eine Momentaufnahme, damit ein Bild nach dem Bewerten nicht verschwindet.
+- **Startseite „Sichten“:** alle Aufnahmen oder je Event, mit Fortschritt (behalten / Ausschuss / bewertet).
+- **Bewertungen** (`db/ratings.rs`) nur in der Datenbank, Sterne und Markierung unabhängig. Leere Bewertung entfernt die Zeile. „Einsparbar: Ausschuss“ in der Speicheransicht, mit RAW, JPEG und Sidecars der Gruppe.
+- **Fix:** Temp-Dateien im App-Verzeichnis haben jetzt eindeutige Namen. Parallele Schreiber derselben Cache-Datei kollidierten vorher (mit Test).
+- **Tests:** 96 grün. Performance (Release, 500 × 12-MP-JPEG): einzelne Vorschau ohne Cache 78 ms, alle 500 im Hintergrund in 13 s (~38/s), aus dem Cache 0,05 ms je Bild.
+
 ## Phase 4: Events (2026-10-27)
 
 - **Clustering** (`events/cluster.rs`): neues Event bei mehr als 4 h Pause oder mehr als 30 km Sprung zur letzten Aufnahme mit GPS, beides einstellbar. Mehrtägig: Folgegruppe am nächsten Tag nahe am GPS-Schwerpunkt wird angehängt. Innerhalb eines Tages wird nur verbunden, wenn die Gruppe schon mehrere Tage umfasst, also eine Reise ist. Ohne GPS keine Vermutung über einen Aufenthalt.

@@ -86,9 +86,57 @@ pub fn extract_frame_jpeg(ffmpeg: &ToolCommand, path: &Path, at_s: Option<f64>, 
     Ok(output.stdout)
 }
 
+/// Wertet einen HTTP-Range-Header (`bytes=start-end`) aus. Liefert den
+/// inklusiven Bereich, begrenzt auf `max_chunk` Bytes; `None` ohne gültigen Header.
+pub fn parse_range(header: Option<&str>, len: u64, max_chunk: u64) -> Option<(u64, u64)> {
+    let spec = header?.trim().strip_prefix("bytes=")?;
+    let (start, end) = spec.split(',').next()?.split_once('-')?;
+    let (start, end) = match (start.trim(), end.trim()) {
+        ("", suffix) => {
+            // "bytes=-500": die letzten 500 Bytes.
+            let n: u64 = suffix.parse().ok()?;
+            (len.saturating_sub(n), len.checked_sub(1)?)
+        }
+        (s, "") => (s.parse().ok()?, len.checked_sub(1)?),
+        (s, e) => (s.parse().ok()?, e.parse::<u64>().ok()?.min(len.checked_sub(1)?)),
+    };
+    if start > end || start >= len {
+        return None;
+    }
+    Some((start, end.min(start + max_chunk - 1)))
+}
+
+pub fn mime_for(path: &Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+        Some("mp4") => "video/mp4",
+        Some("m4v") => "video/x-m4v",
+        Some("mov") => "video/quicktime",
+        Some("3gp") => "video/3gpp",
+        Some("mkv") => "video/x-matroska",
+        Some("avi") => "video/x-msvideo",
+        Some("mts") | Some("m2ts") => "video/mp2t",
+        _ => "application/octet-stream",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_ranges() {
+        let mb = 1 << 20;
+        assert_eq!(parse_range(Some("bytes=0-"), 1000, mb), Some((0, 999)));
+        assert_eq!(parse_range(Some("bytes=100-199"), 1000, mb), Some((100, 199)));
+        assert_eq!(parse_range(Some("bytes=900-5000"), 1000, mb), Some((900, 999)));
+        assert_eq!(parse_range(Some("bytes=-100"), 1000, mb), Some((900, 999)));
+        assert_eq!(parse_range(Some("bytes=0-"), 10 * mb, mb), Some((0, mb - 1)), "auf Blockgröße begrenzt");
+        assert_eq!(parse_range(Some("bytes=1000-"), 1000, mb), None);
+        assert_eq!(parse_range(Some("bytes=5-2"), 1000, mb), None);
+        assert_eq!(parse_range(Some("items=0-1"), 1000, mb), None);
+        assert_eq!(parse_range(None, 1000, mb), None);
+        assert_eq!(parse_range(Some("bytes=0-"), 0, mb), None);
+    }
     use crate::tools::Tools;
     use serde_json::json;
 

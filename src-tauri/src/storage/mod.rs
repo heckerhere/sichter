@@ -163,12 +163,16 @@ pub struct Summary {
     pub raw_pair_count: i64,
     /// Größe aller redundanten Kopien doppelter Dateien.
     pub duplicate_size: i64,
+    /// Als Ausschuss markiert: Anzahl Gruppen und Größe aller ihrer Dateien.
+    pub reject_count: i64,
+    pub reject_size: i64,
 }
 
 pub fn summary(conn: &Connection) -> rusqlite::Result<Summary> {
     let mut stmt = conn.prepare("SELECT kind, count(*), coalesce(sum(size), 0) FROM asset GROUP BY kind ORDER BY 3 DESC")?;
     let kinds: Vec<KindSize> =
         stmt.query_map([], |r| Ok(KindSize { kind: r.get(0)?, count: r.get(1)?, size: r.get(2)? }))?.collect::<rusqlite::Result<_>>()?;
+    let (reject_count, reject_size) = crate::db::ratings::reject_size(conn)?;
     let (raw_pair_count, raw_pair_jpeg_size) = conn.query_row(
         "SELECT count(*), coalesce(sum(a.size), 0) FROM asset a
          WHERE a.kind IN ('jpeg', 'heic') AND a.group_id IN (SELECT group_id FROM asset WHERE kind = 'raw' AND group_id IS NOT NULL)",
@@ -182,6 +186,8 @@ pub fn summary(conn: &Connection) -> rusqlite::Result<Summary> {
         raw_pair_jpeg_size,
         raw_pair_count,
         duplicate_size: crate::dupes::redundant_size(conn)?,
+        reject_count,
+        reject_size,
     })
 }
 

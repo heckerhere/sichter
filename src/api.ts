@@ -112,6 +112,8 @@ export interface StorageSummary {
   raw_pair_jpeg_size: number;
   raw_pair_count: number;
   duplicate_size: number;
+  reject_count: number;
+  reject_size: number;
 }
 
 export interface LargeFile {
@@ -196,6 +198,9 @@ export interface EventCard {
   count: number;
   video_count: number;
   uncertain_count: number;
+  rated_count: number;
+  keep_count: number;
+  reject_count: number;
   thumbs: string[];
   tz_hint_cameras: string[];
 }
@@ -219,7 +224,13 @@ export interface EventItem {
   time: string | null;
   date_source: DateSource | null;
   duration_s: number | null;
+  stars: number;
+  flag: Flag;
+  preview_hash: string | null;
+  video_asset_id: number | null;
 }
+
+export type Flag = "none" | "keep" | "reject";
 
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
@@ -245,9 +256,16 @@ export const api = {
   eventSplit: (eventId: number, groupId: number) => invoke<number | null>("event_split", { eventId, groupId }),
   eventsMove: (groupIds: number[], target: number | null) => invoke<number>("events_move", { groupIds, target }),
   cameraTzSet: (camera: string, mode: TzMode | null) => invoke<void>("camera_tz_set", { camera, mode }),
+  cullItems: (eventId: number | null) => invoke<EventItem[]>("cull_items", { eventId }),
+  setRating: (groupId: number, stars: number | null, flag: Flag | null) => invoke<void>("set_rating", { groupId, stars, flag }),
+  resetRating: (groupId: number) => invoke<void>("reset_rating", { groupId }),
+  previewsPrepare: (hashes: string[]) => invoke<void>("previews_prepare", { hashes }),
+  openInDefaultApp: (assetId: number) => invoke<void>("open_in_default_app", { assetId }),
   dupesAnalyze: () => invoke<DupeAnalysis>("dupes_analyze"),
   setDupeChoice: (hash: string, keepAssetId: number | null) => invoke<void>("set_dupe_choice", { hash, keepAssetId }),
   largestFiles: (limit: number) => invoke<LargeFile[]>("largest_files", { limit }),
 };
 
 export const thumbUrl = (hash: string) => convertFileSrc(hash, "thumb");
+export const previewUrl = (hash: string) => convertFileSrc(hash, "preview");
+export const mediaUrl = (assetId: number) => convertFileSrc(String(assetId), "media");

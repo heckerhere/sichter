@@ -26,12 +26,23 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .register_uri_scheme_protocol("thumb", |ctx, request| commands::thumb_protocol(ctx.app_handle(), &request))
+        // Vorschau-Erzeugung und Dateilesen blockieren: eigener Thread je Anfrage.
+        .register_asynchronous_uri_scheme_protocol("preview", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            std::thread::spawn(move || responder.respond(commands::preview_protocol(&app, &request)));
+        })
+        .register_asynchronous_uri_scheme_protocol("media", |ctx, request, responder| {
+            let app = ctx.app_handle().clone();
+            std::thread::spawn(move || responder.respond(commands::media_protocol(&app, &request)));
+        })
         .setup(|app| {
             let data_dir = AppDataDir::init(app.path().app_data_dir()?)?;
             let db_path = data_dir.join("sichter.db")?;
             let db = db::open(&db_path)?;
             let tools = tools::Tools::resolve(app.path().resource_dir().ok().as_deref());
+            let previews = thumbs::preview::PreviewService::new(data_dir.clone(), tools.clone());
             app.manage(AppState {
+                previews,
                 data_dir,
                 db_path,
                 db: Mutex::new(db),
@@ -68,6 +79,11 @@ pub fn run() {
             commands::event_split,
             commands::events_move,
             commands::camera_tz_set,
+            commands::cull_items,
+            commands::set_rating,
+            commands::reset_rating,
+            commands::previews_prepare,
+            commands::open_in_default_app,
         ])
         .run(tauri::generate_context!())
         .expect("Fehler beim Starten der App");

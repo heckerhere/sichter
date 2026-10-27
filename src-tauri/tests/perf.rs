@@ -52,3 +52,58 @@ fn scans_10k_files_incrementally() {
     println!("Erstscan {FILES} Dateien: {first_time:.2?}, inkrementeller Rescan: {second_time:.2?}");
     assert!(second_time < Duration::from_secs(5), "Rescan zu langsam: {second_time:?}");
 }
+
+/// Phase 5: 500 Bilder flüssig durchklickbar (Vorschauen vorbereitet).
+/// Ausführen mit: cargo test --release --test perf previews -- --ignored --nocapture
+#[test]
+#[ignore = "langsam; explizit mit --ignored ausführen"]
+fn previews_for_500_photos() {
+    use rayon::prelude::*;
+    use sichter_lib::scan::kind::Kind;
+    use sichter_lib::thumbs::preview::{PreviewService, PreviewSource};
+
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().join("base.jpg");
+    // 12-Megapixel-Testbild (4000x3000), wie von einer typischen Kamera.
+    assert!(std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-f", "lavfi", "-i", "testsrc2=s=4000x3000", "-frames:v", "1", "-q:v", "3"])
+        .arg(&base)
+        .status()
+        .unwrap()
+        .success());
+    let bytes = std::fs::read(&base).unwrap();
+    let photos: Vec<_> = (0..500u32)
+        .map(|i| {
+            let p = dir.path().join(format!("IMG_{i:04}.JPG"));
+            let mut b = bytes.clone();
+            b.extend_from_slice(&i.to_le_bytes());
+            std::fs::write(&p, b).unwrap();
+            (format!("{:064x}", i + 1), p)
+        })
+        .collect();
+
+    let app = AppDataDir::init(dir.path().join("appdata")).unwrap();
+    let tools = Tools::resolve(Some(&Path::new(env!("CARGO_MANIFEST_DIR")).join("resources")));
+    let service = PreviewService::new(app, tools);
+    let source = |p: &Path| PreviewSource { path: p.to_path_buf(), kind: Kind::Jpeg, orientation: None, duration_s: None };
+
+    let started = Instant::now();
+    service.ensure(&photos[0].0, || Some(source(&photos[0].1))).unwrap().unwrap();
+    let cold = started.elapsed();
+
+    let started = Instant::now();
+    let pool = rayon::ThreadPoolBuilder::new().num_threads(3).build().unwrap();
+    pool.install(|| photos.par_iter().for_each(|(h, p)| drop(service.ensure(h, || Some(source(p))).unwrap())));
+    let all = started.elapsed();
+
+    let started = Instant::now();
+    for (h, _) in &photos {
+        let path = service.cached(h).unwrap();
+        assert!(!std::fs::read(path).unwrap().is_empty());
+    }
+    let per_cached = started.elapsed() / photos.len() as u32;
+
+    println!("Vorschau ohne Cache: {cold:.0?} · 500 vorbereiten (3 Threads): {all:.1?} · aus dem Cache je Bild: {per_cached:.2?}");
+    assert!(per_cached < Duration::from_millis(20), "Auslieferung aus dem Cache zu langsam: {per_cached:?}");
+    assert!(cold < Duration::from_secs(2), "Einzelne Vorschau zu langsam: {cold:?}");
+}

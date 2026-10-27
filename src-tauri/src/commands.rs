@@ -23,6 +23,7 @@ pub struct AppState {
     pub exiftool: Mutex<Option<ExifTool>>,
     /// Abbruch-Flag des laufenden Scans; `None`, wenn keiner läuft.
     pub scan: Mutex<Option<Arc<AtomicBool>>>,
+    pub previews: Arc<crate::thumbs::preview::PreviewService>,
 }
 
 type CmdResult<T> = Result<T, String>;
@@ -236,6 +237,110 @@ pub fn events_move(state: State<'_, AppState>, group_ids: Vec<i64>, target: Opti
 #[tauri::command]
 pub fn camera_tz_set(state: State<'_, AppState>, camera: String, mode: Option<TzMode>) -> CmdResult<()> {
     events::set_camera_mode(&*db(&state)?, &camera, mode).map_err(err)
+}
+
+// --- Sichten: Bewertungen nur in der Datenbank -------------------------------
+
+use crate::db::ratings::{self, Flag};
+
+#[tauri::command]
+pub fn cull_items(state: State<'_, AppState>, event_id: Option<i64>) -> CmdResult<Vec<GroupRow>> {
+    let db = db(&state)?;
+    match event_id {
+        Some(id) => events::event_items(&db, id),
+        None => events::all_items(&db),
+    }
+    .map_err(err)
+}
+
+#[tauri::command]
+pub fn set_rating(state: State<'_, AppState>, group_id: i64, stars: Option<i64>, flag: Option<Flag>) -> CmdResult<()> {
+    ratings::set(&*db(&state)?, group_id, stars, flag).map_err(err)
+}
+
+#[tauri::command]
+pub fn reset_rating(state: State<'_, AppState>, group_id: i64) -> CmdResult<()> {
+    ratings::reset(&*db(&state)?, group_id).map_err(err)
+}
+
+/// Bereitet Vollbild-Vorschauen im Hintergrund vor (Reihenfolge = Priorität).
+#[tauri::command]
+pub fn previews_prepare(state: State<'_, AppState>, hashes: Vec<String>) -> CmdResult<()> {
+    let items = {
+        let db = db(&state)?;
+        hashes
+            .into_iter()
+            .filter(|h| crate::thumbs::preview::valid_hash(h) && state.previews.cached(h).is_none())
+            .filter_map(|h| crate::thumbs::preview::preview_source(&db, &h).ok().flatten().map(|s| (h, s)))
+            .collect::<Vec<_>>()
+    };
+    state.previews.prepare(items);
+    Ok(())
+}
+
+/// Öffnet eine Datei im Standardprogramm des Systems (nur lesend für Sichter).
+#[tauri::command]
+pub fn open_in_default_app(app: AppHandle, state: State<'_, AppState>, asset_id: i64) -> CmdResult<()> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = asset_path(&*db(&state)?, asset_id, false).ok_or("Datei nicht gefunden")?;
+    app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(err)
+}
+
+fn asset_path(conn: &rusqlite::Connection, asset_id: i64, video_only: bool) -> Option<PathBuf> {
+    let sql = format!(
+        "SELECT r.path, a.rel_path FROM asset a JOIN library_root r ON r.id = a.root_id WHERE a.id = ?1 {}",
+        if video_only { "AND a.kind = 'video'" } else { "AND a.kind != 'other'" }
+    );
+    conn.query_row(&sql, [asset_id], |r| Ok(crate::scan::crawl::from_rel_path(std::path::Path::new(&r.get::<_, String>(0)?), &r.get::<_, String>(1)?)))
+        .ok()
+}
+
+type HttpResponse = tauri::http::Response<Vec<u8>>;
+
+fn http(status: u16, mime: &str) -> tauri::http::response::Builder {
+    tauri::http::Response::builder().status(status).header("Content-Type", mime).header("Access-Control-Allow-Origin", "*")
+}
+
+/// `preview://localhost/<hash>`: große Vorschau, wird bei Bedarf erzeugt.
+pub fn preview_protocol(app: &AppHandle, request: &tauri::http::Request<Vec<u8>>) -> HttpResponse {
+    let hash = request.uri().path().trim_start_matches('/').to_string();
+    let state = app.state::<AppState>();
+    let lookup = || state.db.lock().ok().and_then(|db| crate::thumbs::preview::preview_source(&db, &hash).ok().flatten());
+    match state.previews.ensure(&hash, lookup) {
+        Ok(Some(path)) => match std::fs::read(path) {
+            Ok(bytes) => http(200, "image/jpeg").header("Cache-Control", "max-age=31536000, immutable").body(bytes),
+            Err(_) => http(404, "text/plain").body(Vec::new()),
+        },
+        Ok(None) => http(404, "text/plain").body(Vec::new()),
+        Err(_) => http(400, "text/plain").body(Vec::new()),
+    }
+    .expect("gültige Antwort")
+}
+
+/// `media://localhost/<asset_id>`: Videodatei mit Range-Unterstützung zum
+/// Abspielen. Liefert ausschließlich indexierte Videos, nur lesend.
+pub fn media_protocol(app: &AppHandle, request: &tauri::http::Request<Vec<u8>>) -> HttpResponse {
+    use std::io::{Read, Seek, SeekFrom};
+    const CHUNK: u64 = 4 << 20;
+    let not_found = || http(404, "text/plain").body(Vec::new()).expect("gültige Antwort");
+    let Ok(id) = request.uri().path().trim_start_matches('/').parse::<i64>() else { return not_found() };
+    let state = app.state::<AppState>();
+    let Some(path) = state.db.lock().ok().and_then(|db| asset_path(&db, id, true)) else { return not_found() };
+    let Ok(mut file) = std::fs::File::open(&path) else { return not_found() };
+    let Ok(len) = file.metadata().map(|m| m.len()) else { return not_found() };
+    let mime = crate::video::mime_for(&path);
+    let range = request.headers().get("range").and_then(|v| v.to_str().ok());
+    let (start, end) = crate::video::parse_range(range, len, CHUNK).unwrap_or((0, len.saturating_sub(1).min(CHUNK - 1)));
+    let mut body = vec![0u8; (end + 1 - start) as usize];
+    if file.seek(SeekFrom::Start(start)).and_then(|_| file.read_exact(&mut body)).is_err() {
+        return not_found();
+    }
+    http(206, mime)
+        .header("Accept-Ranges", "bytes")
+        .header("Content-Range", format!("bytes {start}-{end}/{len}"))
+        .header("Content-Length", body.len().to_string())
+        .body(body)
+        .expect("gültige Antwort")
 }
 
 #[tauri::command]

@@ -9,6 +9,7 @@ use std::path::Path;
 use rusqlite::{Connection, OpenFlags};
 
 pub mod library;
+pub mod ratings;
 
 const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_init.sql"),

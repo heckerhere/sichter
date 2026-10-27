@@ -291,14 +291,14 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [x] Test: Fixture mit drei Tagen und Reise
 
 ### Phase 5: Sichten
-- [ ] Vollbildansicht Fotos
-- [ ] Videowiedergabe bzw. Fallback "Im Standardplayer öffnen"
-- [ ] Tastatursteuerung (Pfeile, P, X, 1-5, U)
-- [ ] Vergleichsansicht 2-4 Bilder
-- [ ] Bewertungen und Flags in DB
-- [ ] Preloading der Nachbarbilder
-- [ ] Filter nach Bewertung/Flag
-- [ ] Performance-Test 500 Bilder
+- [x] Vollbildansicht Fotos
+- [x] Videowiedergabe bzw. Fallback "Im Standardplayer öffnen"
+- [x] Tastatursteuerung (Pfeile, P, X, 1-5, U)
+- [x] Vergleichsansicht 2-4 Bilder
+- [x] Bewertungen und Flags in DB
+- [x] Preloading der Nachbarbilder
+- [x] Filter nach Bewertung/Flag
+- [x] Performance-Test 500 Bilder
 
 ### Phase 6: Planer und sichere Ausführung
 - [ ] Sicherheitsmodell-Review (Abschnitt 3) gegen Code

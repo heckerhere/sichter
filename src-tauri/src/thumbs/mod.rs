@@ -8,6 +8,11 @@
 //!
 //! Cache: `thumbs/<2 Zeichen>/<hash>.webp` im App-Datenverzeichnis, Schlüssel
 //! ist der BLAKE3-Hash des Originals. Gleiche Inhalte teilen sich ein Thumbnail.
+//!
+//! Für die Vollbildansicht (Sichten) gibt es zusätzlich große Vorschauen als
+//! JPEG unter `previews/`, erzeugt bei Bedarf bzw. im Hintergrund vorab.
+
+pub mod preview;
 
 use std::path::{Path, PathBuf};
 
@@ -27,9 +32,16 @@ pub const VERSION: i64 = 2;
 /// Längste Kante in Pixeln. Reicht für Grid-Kacheln auf Retina-Displays.
 pub const MAX_EDGE: u32 = 512;
 const WEBP_QUALITY: f32 = 78.0;
+/// Längste Kante der Vollbild-Vorschau.
+pub const PREVIEW_EDGE: u32 = 2560;
+const PREVIEW_JPEG_QUALITY: u8 = 85;
 
 pub fn cache_rel_path(hash_hex: &str) -> PathBuf {
     Path::new("thumbs").join(&hash_hex[..2]).join(format!("{hash_hex}.webp"))
+}
+
+pub fn preview_rel_path(hash_hex: &str) -> PathBuf {
+    Path::new("previews").join(&hash_hex[..2]).join(format!("{hash_hex}.jpg"))
 }
 
 /// Alles, was für ein Thumbnail eines Assets nötig ist.
@@ -48,7 +60,16 @@ impl Thumbnailer<'_> {
     /// Erzeugt das Thumbnail als WebP-Bytes. `Ok(None)`, wenn die Datei kein
     /// Vorschaubild hergibt (z. B. RAW ohne eingebettetes JPEG).
     pub fn render(&self, src: &ThumbSource, exiftool: &mut dyn FnMut(&Path) -> Option<Vec<u8>>) -> Result<Option<Vec<u8>>, String> {
-        let image = match src.kind {
+        self.decode(src, MAX_EDGE, exiftool)?.map(|img| encode_webp(&resize(img, MAX_EDGE)?)).transpose()
+    }
+
+    /// Große Vorschau als JPEG-Bytes für die Vollbildansicht.
+    pub fn render_preview(&self, src: &ThumbSource, exiftool: &mut dyn FnMut(&Path) -> Option<Vec<u8>>) -> Result<Option<Vec<u8>>, String> {
+        self.decode(src, PREVIEW_EDGE, exiftool)?.map(|img| encode_jpeg(&resize(img, PREVIEW_EDGE)?)).transpose()
+    }
+
+    fn decode(&self, src: &ThumbSource, max_edge: u32, exiftool: &mut dyn FnMut(&Path) -> Option<Vec<u8>>) -> Result<Option<DynamicImage>, String> {
+        Ok(match src.kind {
             Kind::Jpeg | Kind::Png | Kind::Tiff | Kind::Webp => {
                 let img = ImageReader::open(src.path)
                     .map_err(|e| e.to_string())?
@@ -69,13 +90,24 @@ impl Thumbnailer<'_> {
             Kind::Heic | Kind::Video => {
                 let ffmpeg = self.ffmpeg.ok_or("ffmpeg nicht verfügbar")?;
                 let at = (src.kind == Kind::Video).then(|| src.duration_s.map_or(0.0, |d| d * 0.1));
-                let jpeg = crate::video::extract_frame_jpeg(ffmpeg, src.path, at, MAX_EDGE)?;
+                let jpeg = crate::video::extract_frame_jpeg(ffmpeg, src.path, at, max_edge)?;
                 Some(image::load_from_memory(&jpeg).map_err(|e| e.to_string())?)
             }
             Kind::Sidecar | Kind::Other => None,
-        };
-        image.map(|img| encode_webp(&resize(img)?)).transpose()
+        })
     }
+}
+
+/// Wie [`raw_preview`], aber das größte eingebettete JPEG (für die Vollbildansicht).
+pub fn raw_preview_largest(exiftool: &mut ExifTool, path: &Path) -> Option<Vec<u8>> {
+    let path = path.to_str()?;
+    ["-JpgFromRaw", "-PreviewImage", "-ThumbnailImage"]
+        .iter()
+        .filter_map(|tag| {
+            let bytes = exiftool.execute_binary(&["-b", tag, path]).ok()?;
+            (bytes.len() > 2 && bytes[..2] == [0xFF, 0xD8]).then_some(bytes)
+        })
+        .max_by_key(Vec::len)
 }
 
 /// Holt das größte brauchbare eingebettete JPEG aus einer RAW-Datei.
@@ -94,16 +126,16 @@ fn apply_orientation(mut img: DynamicImage, orientation: Option<i64>) -> Dynamic
     img
 }
 
-fn resize(img: DynamicImage) -> Result<DynamicImage, String> {
+fn resize(img: DynamicImage, max_edge: u32) -> Result<DynamicImage, String> {
     let img = DynamicImage::ImageRgb8(img.to_rgb8());
     let (w, h) = (img.width(), img.height());
     if w == 0 || h == 0 {
         return Err("Bild ohne Pixel".into());
     }
-    if w.max(h) <= MAX_EDGE {
+    if w.max(h) <= max_edge {
         return Ok(img);
     }
-    let scale = MAX_EDGE as f64 / w.max(h) as f64;
+    let scale = max_edge as f64 / w.max(h) as f64;
     let (tw, th) = (((w as f64 * scale).round() as u32).max(1), ((h as f64 * scale).round() as u32).max(1));
     let mut dst = Image::new(tw, th, PixelType::U8x3);
     Resizer::new()
@@ -118,6 +150,15 @@ fn encode_webp(img: &DynamicImage) -> Result<Vec<u8>, String> {
     let rgb = img.to_rgb8();
     let encoded = webp::Encoder::from_rgb(rgb.as_raw(), rgb.width(), rgb.height()).encode(WEBP_QUALITY);
     Ok(encoded.to_vec())
+}
+
+fn encode_jpeg(img: &DynamicImage) -> Result<Vec<u8>, String> {
+    let rgb = img.to_rgb8();
+    let mut out = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, PREVIEW_JPEG_QUALITY)
+        .encode_image(&rgb)
+        .map_err(|e| e.to_string())?;
+    Ok(out)
 }
 
 pub fn store(app: &AppDataDir, hash_hex: &str, webp: &[u8]) -> std::io::Result<PathBuf> {

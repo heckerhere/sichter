@@ -84,6 +84,12 @@ pub struct GroupRow {
     pub time: Option<String>,
     pub date_source: Option<String>,
     pub duration_s: Option<f64>,
+    pub stars: i64,
+    pub flag: String,
+    /// Inhalt, aus dem die Vollbild-Vorschau entsteht: Kamera-JPEG vor RAW.
+    pub preview_hash: Option<String>,
+    /// Video der Gruppe (Video-Aufnahme oder Live-Photo-Teil).
+    pub video_asset_id: Option<i64>,
     #[serde(skip)]
     gps: Option<(f64, f64)>,
     #[serde(skip)]
@@ -118,12 +124,17 @@ fn load_rows(conn: &Connection, only_event: Option<i64>) -> rusqlite::Result<Vec
               ORDER BY CASE x.kind WHEN 'jpeg' THEN 0 WHEN 'heic' THEN 1 WHEN 'video' THEN 4 WHEN 'raw' THEN 3 ELSE 2 END LIMIT 1),
             m.taken_at, m.date_source, v.duration_s, m.quicktime_utc, m.camera_make, m.camera_model,
             (SELECT mm.gps_lat || ',' || mm.gps_lon FROM asset x JOIN meta mm ON mm.asset_id = x.id
-              WHERE x.group_id = g.id AND mm.gps_lat IS NOT NULL LIMIT 1)
+              WHERE x.group_id = g.id AND mm.gps_lat IS NOT NULL LIMIT 1),
+            coalesce(rt.stars, 0), coalesce(rt.flag, 'none'),
+            (SELECT x.hash FROM asset x WHERE x.group_id = g.id AND x.hash IS NOT NULL AND x.kind NOT IN ('sidecar', 'other')
+              ORDER BY CASE x.kind WHEN 'jpeg' THEN 0 WHEN 'heic' THEN 1 WHEN 'raw' THEN 3 WHEN 'video' THEN 4 ELSE 2 END LIMIT 1),
+            (SELECT x.id FROM asset x WHERE x.group_id = g.id AND x.kind = 'video' LIMIT 1)
          FROM asset_group g
          JOIN asset p ON p.id = g.primary_asset_id
          LEFT JOIN meta m ON m.asset_id = p.id
          LEFT JOIN video_meta v ON v.asset_id = p.id
          LEFT JOIN event_asset ea ON ea.group_id = g.id
+         LEFT JOIN rating rt ON rt.group_id = g.id
          {}",
         if only_event.is_some() { "WHERE ea.event_id = ?1" } else { "" }
     );
@@ -151,6 +162,10 @@ fn load_rows(conn: &Connection, only_event: Option<i64>) -> rusqlite::Result<Vec
             time: effective.map(fmt_time),
             date_source: r.get(8)?,
             duration_s: r.get(9)?,
+            stars: r.get(14)?,
+            flag: r.get(15)?,
+            preview_hash: r.get(16)?,
+            video_asset_id: r.get(17)?,
             gps,
             camera,
             quicktime_utc,
@@ -276,6 +291,10 @@ pub struct EventCard {
     pub count: usize,
     pub video_count: usize,
     pub uncertain_count: usize,
+    /// Gruppen mit Sternen oder Markierung.
+    pub rated_count: usize,
+    pub keep_count: usize,
+    pub reject_count: usize,
     pub thumbs: Vec<String>,
     /// Videos, deren Zeit nach der anderen Zeitzonen-Deutung besser zu den Fotos derselben Kamera passt.
     pub tz_hint_cameras: Vec<String>,
@@ -339,11 +358,21 @@ pub fn list_events(conn: &Connection) -> rusqlite::Result<Vec<EventCard>> {
                 count: members.len(),
                 video_count: members.iter().filter(|m| m.kind == "video").count(),
                 uncertain_count: members.iter().filter(|m| m.date_source.as_deref().is_some_and(|s| s != "exif")).count(),
+                rated_count: members.iter().filter(|m| m.stars > 0 || m.flag != "none").count(),
+                keep_count: members.iter().filter(|m| m.flag == "keep").count(),
+                reject_count: members.iter().filter(|m| m.flag == "reject").count(),
                 tz_hint_cameras: tz_hints(&members),
                 thumbs,
             }
         })
         .collect())
+}
+
+/// Alle Aufnahmen zeitlich sortiert (Sichten ohne Event-Auswahl).
+pub fn all_items(conn: &Connection) -> rusqlite::Result<Vec<GroupRow>> {
+    let mut rows = load_rows(conn, None)?;
+    rows.sort_by(|a, b| a.time.cmp(&b.time).then(a.group_id.cmp(&b.group_id)));
+    Ok(rows)
 }
 
 pub fn event_items(conn: &Connection, event_id: i64) -> rusqlite::Result<Vec<GroupRow>> {
@@ -520,6 +549,10 @@ mod tests {
             time: Some(fmt_time(effective)),
             date_source: Some("exif".into()),
             duration_s: None,
+            stars: 0,
+            flag: "none".into(),
+            preview_hash: None,
+            video_asset_id: None,
             gps: None,
             camera: camera.into(),
             quicktime_utc,
