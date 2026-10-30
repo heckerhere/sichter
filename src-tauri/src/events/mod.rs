@@ -239,6 +239,22 @@ fn refresh_event(conn: &Connection, event_id: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Nach dem Entfernen von Aufnahmen (Ordner aus der Bibliothek entfernt,
+/// Papierkorb-Lauf): Events ohne Aufnahmen verschwinden, auch bestätigte, und
+/// die übrigen bekommen wieder passende Zeiträume und Titelvorschläge.
+pub fn cleanup(conn: &Connection) -> rusqlite::Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    remove_empty_events(&tx)?;
+    let ids: Vec<i64> = {
+        let mut stmt = tx.prepare("SELECT id FROM event")?;
+        stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
+    };
+    for id in ids {
+        refresh_event(&tx, id)?;
+    }
+    tx.commit()
+}
+
 fn remove_empty_events(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM event WHERE id NOT IN (SELECT DISTINCT event_id FROM event_asset)", [])?;
     Ok(())

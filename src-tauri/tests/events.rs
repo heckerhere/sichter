@@ -148,3 +148,35 @@ fn settings_roundtrip_and_clamp() {
     let s = events::load_settings(&conn).unwrap();
     assert_eq!((s.gap_hours, s.gps_km, s.merge_multiday), (2.5, 1.0, false));
 }
+
+#[test]
+fn removing_a_folder_removes_its_empty_events_and_updates_shared_ones() {
+    let dir = tempfile::tempdir().unwrap();
+    let (a, b) = (dir.path().join("A"), dir.path().join("B"));
+    make_library(&a);
+    // Zweiter Ordner: nur das Abendfoto, gleiche Zeit wie in A -> landet im selben Event.
+    std::fs::create_dir_all(&b).unwrap();
+    std::fs::copy(a.join("DCIM/b1.jpg"), b.join("b1-kopie.jpg")).unwrap();
+    let app = AppDataDir::init(dir.path().join("appdata")).unwrap();
+    let mut conn = db::open(&app.join("t.db").unwrap()).unwrap();
+    let root_a = library::add_root(&conn, &a, app.path()).unwrap();
+    library::add_root(&conn, &b, app.path()).unwrap();
+    let tools = Tools::resolve(None);
+    let cancel = AtomicBool::new(false);
+    Scanner { conn: &mut conn, tools: &tools, app: &app, cancel: &cancel, progress: &|_| {} }.run(None).unwrap();
+
+    let before = events::list_events(&conn).unwrap();
+    assert_eq!(before.len(), 5);
+    let evening = before.iter().find(|e| e.date_start.as_deref() == Some("2023-05-12T23:45:00")).unwrap();
+    assert_eq!(evening.count, 2, "Abendfoto aus A und Kopie aus B");
+    // Auch bestätigte Events verschwinden, wenn sie leer werden.
+    events::set_confirmed(&conn, before[0].id, true).unwrap();
+
+    library::remove_root(&conn, root_a).unwrap();
+    let after = events::list_events(&conn).unwrap();
+    assert_eq!(after.len(), 1, "nur das gemeinsame Event bleibt: {after:?}");
+    assert_eq!(after[0].id, evening.id);
+    assert_eq!(after[0].count, 1);
+    let empty: i64 = conn.query_row("SELECT count(*) FROM event WHERE id NOT IN (SELECT event_id FROM event_asset)", [], |r| r.get(0)).unwrap();
+    assert_eq!(empty, 0);
+}

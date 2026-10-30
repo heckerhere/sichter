@@ -610,6 +610,8 @@ pub fn recover_interrupted(conn: &Connection) -> rusqlite::Result<Vec<i64>> {
 /// Ordnergrößen und leere Gruppen nach einem Lauf aktualisieren.
 fn refresh_after_run(conn: &Connection) -> rusqlite::Result<()> {
     conn.execute("DELETE FROM asset_group WHERE id NOT IN (SELECT group_id FROM asset WHERE group_id IS NOT NULL)", [])?;
+    // Nach dem Papierkorb können Events leer sein.
+    crate::events::cleanup(conn)?;
     let roots: Vec<(i64, String)> = {
         let mut stmt = conn.prepare("SELECT id, path FROM library_root")?;
         stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<rusqlite::Result<_>>()?

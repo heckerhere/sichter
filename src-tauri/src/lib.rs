@@ -42,6 +42,8 @@ pub fn run() {
             // Läufe, die beim letzten Beenden noch liefen, gelten als abgebrochen
             // und können fortgesetzt oder rückgängig gemacht werden.
             journal::recover_interrupted(&db)?;
+            // Räumt auch leere Events aus älteren Versionen auf.
+            events::cleanup(&db)?;
             let tools = tools::Tools::resolve(app.path().resource_dir().ok().as_deref());
             events::places::init(app.path().resource_dir().ok().as_deref());
             let previews = thumbs::preview::PreviewService::new(data_dir.clone(), tools.clone());

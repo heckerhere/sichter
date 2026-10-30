@@ -64,7 +64,8 @@ pub fn remove_root(conn: &Connection, id: i64) -> rusqlite::Result<()> {
         "DELETE FROM asset_group WHERE id NOT IN (SELECT group_id FROM asset WHERE group_id IS NOT NULL)",
         [],
     )?;
-    Ok(())
+    // Events ohne Aufnahmen entfernen, übrige aktualisieren.
+    crate::events::cleanup(conn)
 }
 
 fn list_root_paths(conn: &Connection) -> rusqlite::Result<Vec<PathBuf>> {
