@@ -16,10 +16,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    # Windows ist noch ungeprüft (PLAN.md, Phase 7): Der Job läuft mit, macht den
-    # Lauf aber nicht rot. exiftool-Tests hängen dort derzeit, daher das Zeitlimit.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -37,6 +34,10 @@ jobs:
       - run: pnpm build
       # Enthält tests/fsops_guard.rs: kein schreibender std::fs-Aufruf außerhalb von fsops.
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+        # Windows ist noch ungeprüft (PLAN.md, Phase 7): Die exiftool-Tests hängen
+        # dort derzeit. Zeitlimit und Fehler zählen nur als Warnung, Clippy läuft weiter.
+        continue-on-error: ${{ runner.os == 'Windows' }}
+        timeout-minutes: ${{ runner.os == 'Windows' && 20 || 45 }}
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 
   bundle:
