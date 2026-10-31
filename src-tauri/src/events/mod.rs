@@ -605,7 +605,7 @@ pub fn cameras_with_ambiguous_video(conn: &Connection) -> rusqlite::Result<Vec<C
         let is_default = !overrides.contains_key(&camera);
         out.push(CameraTz { camera, video_count: n as usize, mode, is_default });
     }
-    out.sort_by(|a, b| b.video_count.cmp(&a.video_count));
+    out.sort_by_key(|a| std::cmp::Reverse(a.video_count));
     Ok(out)
 }
 

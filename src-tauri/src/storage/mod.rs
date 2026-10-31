@@ -130,7 +130,7 @@ pub fn folders(conn: &Connection, root_id: i64) -> rusqlite::Result<Vec<FolderRo
     .map(|row| {
         row.map(|mut f| {
             let mut k = kinds.remove(&f.id).unwrap_or_default();
-            k.sort_by(|a, b| b.size.cmp(&a.size));
+            k.sort_by_key(|a| std::cmp::Reverse(a.size));
             f.kinds = k;
             f
         })

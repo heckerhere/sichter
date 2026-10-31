@@ -35,3 +35,28 @@ if (-not (Test-Path "$Bin/ffmpeg-x86_64-pc-windows-msvc.exe")) {
   if ($Conf -match "--enable-gpl") { throw "FEHLER: GPL-Build" }
   Write-Host "LGPL-ffmpeg installiert"
 }
+
+# GeoNames cities1000 (CC BY 4.0) -> resources/geo/cities1000.tsv, wie scripts/fetch-geonames.sh:
+# Name, Breite, Länge, Ländercode, Einwohner; ohne Stadtteile und historische Orte.
+$Geo = "src-tauri/resources/geo"
+if (-not (Test-Path "$Geo/cities1000.tsv")) {
+  $Zip = Join-Path $Tmp "cities1000.zip"
+  Invoke-WebRequest -UseBasicParsing -Uri "https://download.geonames.org/export/dump/cities1000.zip" -OutFile $Zip
+  Expand-Archive -Force $Zip (Join-Path $Tmp "geo")
+  New-Item -ItemType Directory -Force $Geo | Out-Null
+  $Skip = @("PPLX", "PPLH", "PPLQ", "PPLW", "PPLCH")
+  $In = [IO.StreamReader]::new((Join-Path $Tmp "geo/cities1000.txt"), [Text.Encoding]::UTF8)
+  $Out = [IO.StreamWriter]::new((Join-Path (Get-Location) "$Geo/cities1000.tsv"), $false, [Text.UTF8Encoding]::new($false))
+  $Out.NewLine = "`n"
+  $Count = 0
+  while ($null -ne ($Line = $In.ReadLine())) {
+    $F = $Line.Split("`t")
+    if ($Skip -contains $F[7]) { continue }
+    $Out.WriteLine(($F[1], $F[4], $F[5], $F[8], $F[14]) -join "`t")
+    $Count++
+  }
+  $In.Close()
+  $Out.Close()
+  Set-Content "$Geo/VERSION" (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd")
+  Write-Host "GeoNames: $Count Orte"
+}
