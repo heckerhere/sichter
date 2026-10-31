@@ -1,6 +1,7 @@
 import { defineStore } from "pinia";
 import { ref } from "vue";
 import { api, type AppInfo } from "../api";
+import { locale, resolveLocale, type LanguagePref } from "../i18n";
 
 export const useAppStore = defineStore("app", () => {
   const info = ref<AppInfo | null>(null);
@@ -18,6 +19,26 @@ export const useAppStore = defineStore("app", () => {
     dryRun.value = enabled;
   }
 
+  // Sprache: "auto" folgt dem System. Die tatsächliche Sprache geht auch ans
+  // Backend (Meldungen, Ordnernamen, die Sichter anlegt).
+  const language = ref<LanguagePref>("auto");
+
+  async function applyLanguage(pref: LanguagePref) {
+    const effective = resolveLocale(pref);
+    await api.setUiLanguage(pref, effective);
+    language.value = pref;
+    locale.value = effective;
+  }
+
+  async function loadLanguage() {
+    try {
+      const pref = (await api.uiLanguage()) as LanguagePref;
+      await applyLanguage(["auto", "de", "en"].includes(pref) ? pref : "auto");
+    } catch (e) {
+      error.value = String(e);
+    }
+  }
+
   async function load() {
     try {
       info.value = await api.appInfo();
@@ -27,5 +48,5 @@ export const useAppStore = defineStore("app", () => {
     }
   }
 
-  return { info, error, dryRun, load, loadDryRun, setDryRun };
+  return { info, error, dryRun, language, load, loadDryRun, setDryRun, loadLanguage, applyLanguage };
 });

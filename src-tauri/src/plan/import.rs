@@ -43,9 +43,9 @@ pub struct ExportNote {
 }
 
 /// Anzeigename der Quelle im Plan (kein echter Pfad).
-pub const SOURCE_LABEL: &str = "Fotos-Mediathek";
-/// Ordner für Objekte ohne Aufnahmedatum.
-pub const NO_DATE_DIR: &str = "Ohne Datum";
+pub fn source_label() -> &'static str {
+    crate::i18n::tr("Fotos-Mediathek", "Photos library")
+}
 
 fn already_imported(conn: &Connection) -> rusqlite::Result<HashSet<(String, String)>> {
     let mut stmt = conn.prepare("SELECT note FROM operation WHERE op = 'export' AND status = 'done'")?;
@@ -61,7 +61,7 @@ fn already_imported(conn: &Connection) -> rusqlite::Result<HashSet<(String, Stri
 fn date_dir(target: &Path, created: Option<i64>) -> PathBuf {
     match created.and_then(|s| chrono::Local.timestamp_opt(s, 0).single()) {
         Some(t) => target.join(t.format("%Y").to_string()).join(t.format("%Y-%m-%d").to_string()),
-        None => target.join(NO_DATE_DIR),
+        None => target.join(crate::i18n::dirs::import_no_date()),
     }
 }
 
@@ -72,17 +72,17 @@ fn stem(name: &str) -> &str {
 pub fn plan_photos_import(conn: &Connection, assets: &[Asset], p: &ImportParams) -> Result<(Vec<PlannedOp>, Summary)> {
     let target = PathBuf::from(&p.target);
     if !target.is_dir() {
-        return Err(PlanError::Invalid("Der Zielordner existiert nicht.".into()));
+        return Err(PlanError::Invalid(crate::i18n::tr("Der Zielordner existiert nicht.", "The target folder does not exist.").into()));
     }
     if target.components().any(|c| c.as_os_str().to_string_lossy().to_lowercase().ends_with(".photoslibrary")) {
-        return Err(PlanError::Invalid("Der Zielordner darf nicht in einer Fotos-Mediathek liegen.".into()));
+        return Err(PlanError::Invalid(crate::i18n::tr("Der Zielordner darf nicht in einer Fotos-Mediathek liegen.", "The target folder must not be inside a Photos library.").into()));
     }
     let locked: Vec<String> = {
         let mut stmt = conn.prepare("SELECT path FROM library_root WHERE locked = 1")?;
         stmt.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?
     };
     if PathGuard::new(locked).check(&target).is_err() {
-        return Err(PlanError::Invalid("Der Zielordner liegt in einem gesperrten Ordner.".into()));
+        return Err(PlanError::Invalid(crate::i18n::tr("Der Zielordner liegt in einem gesperrten Ordner.", "The target folder is inside a locked folder.").into()));
     }
 
     let done = already_imported(conn)?;
@@ -134,7 +134,7 @@ pub fn plan_photos_import(conn: &Connection, assets: &[Asset], p: &ImportParams)
             for name in &renamed {
                 b.summary.conflicts.push(Conflict {
                     kind: ConflictKind::Renamed,
-                    path: format!("{SOURCE_LABEL}/{}", names[0]),
+                    path: format!("{}/{}", source_label(), names[0]),
                     target: Some(dir.join(name).display().to_string()),
                 });
             }
@@ -160,7 +160,7 @@ pub fn plan_photos_import(conn: &Connection, assets: &[Asset], p: &ImportParams)
             };
             b.ops.push(PlannedOp {
                 op: Op::Export,
-                src: Some(PathBuf::from(format!("{SOURCE_LABEL}/{}", r.original_name))),
+                src: Some(PathBuf::from(format!("{}/{}", source_label(), r.original_name))),
                 dst: Some(dst),
                 hash: None,
                 size,
@@ -175,9 +175,9 @@ pub fn plan_photos_import(conn: &Connection, assets: &[Asset], p: &ImportParams)
     }
     if b.summary.files == 0 {
         let msg = if b.summary.already_imported > 0 {
-            format!("Nichts zu importieren: Alle {} Objekte wurden schon importiert.", b.summary.already_imported)
+            crate::trf!("Nichts zu importieren: Alle {} Objekte wurden schon importiert.", "Nothing to import: all {} items were already imported.", b.summary.already_imported)
         } else {
-            "Die Mediathek enthält keine exportierbaren Fotos oder Videos.".to_string()
+            crate::i18n::tr("Die Mediathek enthält keine exportierbaren Fotos oder Videos.", "The library contains no exportable photos or videos.").to_string()
         };
         return Err(PlanError::Invalid(msg));
     }
@@ -222,7 +222,7 @@ mod tests {
                 format!("{day}/IMG_1.MOV"),
                 format!("{day}/IMG_1 (2).HEIC"),
                 format!("{day}/IMG_1 (2).MOV"),
-                format!("{NO_DATE_DIR}/a_b.jpg"),
+                format!("{}/a_b.jpg", crate::i18n::dirs::import_no_date()),
             ]
         );
         assert_eq!((s.files, s.groups, s.not_exportable, s.bytes), (5, 3, 1, 50));

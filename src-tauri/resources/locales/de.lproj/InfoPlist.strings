@@ -1,0 +1,2 @@
+/* Zugriffstext für die Fotos-Mediathek */
+"NSPhotoLibraryUsageDescription" = "Sichter liest deine Fotos-Mediathek nur, um Originale auf deinen Wunsch in einen Ordner zu kopieren. Die Mediathek selbst wird nicht verändert.";

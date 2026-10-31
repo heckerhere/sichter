@@ -40,7 +40,9 @@
     ],
     "resources": {
       "resources/exiftool/": "exiftool/",
-      "resources/geo/": "geo/"
+      "resources/geo/": "geo/",
+      "resources/locales/de.lproj/": "de.lproj/",
+      "resources/locales/en.lproj/": "en.lproj/"
     },
     "category": "Photography",
     "shortDescription": "Fotos und Videos sicher sortieren",

@@ -6,7 +6,7 @@ Sichter is a desktop app for macOS (Windows in progress) built with Tauri 2, Rus
 
 Its one non-negotiable rule: **Sichter never deletes or changes anything on its own.** Every file operation is planned, shown to you, confirmed, journaled and can be undone.
 
-> The user interface is currently in German. An English translation is planned.
+Available in **English and German** (follows your system language, switchable in Settings).
 
 ![Library](docs/screenshots/library.png)
 
@@ -18,8 +18,9 @@ Its one non-negotiable rule: **Sichter never deletes or changes anything on its 
 - **Culling:** full-screen loupe with keyboard control (`P` keep, `X` reject, `1`–`5` stars), compare view for 2–4 images, burst detection, video playback.
 - **Duplicates:** identical files, identical folders, folders with the same content under different names, and folders that are a subset of another (e.g. a half-finished copy).
 - **Storage overview:** folder tree, treemap and sunburst with a breakdown by file type, plus how much space duplicates and rejects take up.
-- **Reorganize:** template-based target paths (`{Year}/{Date} {Occasion}/{Original filename}`), move or copy, preview tree, dry run, conflict handling.
+- **Reorganize:** template-based target paths (`{Year}/{Date} {Event}/{Original-Filename}`), move or copy, preview tree, dry run, conflict handling.
 - **Optional XMP export** of ratings for Lightroom, Capture One or Bridge (off by default, merges existing sidecars).
+- **English and German:** interface, messages and the folder names Sichter creates (`_Unsorted`/`_Unsortiert`, …) follow the chosen language. Templates accept both placeholder sets, e.g. `{Year}/{Date} {Event}` and `{Jahr}/{Datum} {Anlass}`.
 
 | Events | Culling |
 |---|---|
@@ -46,7 +47,7 @@ All filesystem writes go through a single module (`src-tauri/src/fsops/`). A tes
 
 ![Photos import dialog](docs/screenshots/photos-dialog.png)
 
-In **Library → Aus Fotos importieren** you choose a target folder. Sichter then:
+In **Library → Import from Photos** you choose a target folder. Sichter then:
 
 1. asks for access to your Photos library (macOS permission dialog, once),
 2. reads the library through Apple's PhotoKit and plans one copy operation per original file,

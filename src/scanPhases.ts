@@ -1,22 +1,32 @@
 import type { ScanProgress } from "./api";
+import { t } from "./i18n";
 
 type Phase = ScanProgress["phase"];
 
 /** Reihenfolge, Beschriftung und grobe Gewichtung der Scan-Phasen. */
-export const PHASES: { id: Phase; label: string; weight: number }[] = [
-  { id: "crawl", label: "Dateien suchen", weight: 5 },
-  { id: "detect", label: "Dateitypen prüfen", weight: 5 },
-  { id: "meta", label: "Metadaten lesen", weight: 25 },
-  { id: "group", label: "Zusammengehörige Dateien erkennen", weight: 5 },
-  { id: "hash", label: "Prüfsummen berechnen", weight: 25 },
-  { id: "thumbs", label: "Vorschaubilder erzeugen", weight: 35 },
-  { id: "done", label: "Abschließen", weight: 0 },
-];
+export const PHASES: { id: Phase; readonly label: string; weight: number }[] = (
+  [
+    ["crawl", 5],
+    ["detect", 5],
+    ["meta", 25],
+    ["group", 5],
+    ["hash", 25],
+    ["thumbs", 35],
+    ["done", 0],
+  ] as const
+).map(([id, weight]) => ({
+  id,
+  weight,
+  // Getter: Beschriftung immer in der aktuellen Sprache.
+  get label() {
+    return t.app.scan.phases[id];
+  },
+}));
 
 const TOTAL_WEIGHT = PHASES.reduce((s, p) => s + p.weight, 0);
 
 export function phaseLabel(phase: Phase | undefined): string {
-  return PHASES.find((p) => p.id === phase)?.label ?? "Scan startet";
+  return PHASES.find((p) => p.id === phase)?.label ?? t.app.scan.starting;
 }
 
 /** Schritt n von m (1-basiert, ohne "done"). */

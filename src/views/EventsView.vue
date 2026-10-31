@@ -5,6 +5,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { api, type EventCard, type EventsOverview, type TzMode } from "../api";
 import { useLibraryStore } from "../stores/library";
 import { formatInt, monthName } from "../format";
+import { t } from "../i18n";
 import EventCardRow from "../components/EventCardRow.vue";
 import EventDetail from "../components/EventDetail.vue";
 
@@ -33,7 +34,7 @@ const timeline = computed(() => {
   const out: { key: string; label: string; events: EventCard[] }[] = [];
   for (const e of data.value?.events ?? []) {
     const key = e.date_start ? e.date_start.slice(0, 7) : "ohne";
-    const label = e.date_start ? `${monthName(+key.slice(5, 7))} ${key.slice(0, 4)}` : "Ohne Datum";
+    const label = e.date_start ? `${monthName(+key.slice(5, 7))} ${key.slice(0, 4)}` : t.common.noDateTitle;
     if (out.at(-1)?.key !== key) out.push({ key, label, events: [] });
     out.at(-1)!.events.push(e);
   }
@@ -71,8 +72,8 @@ async function saveSettings() {
 
 async function recluster() {
   const ok = await ask(
-    "Alle unbestätigten Events werden aus deinen Einstellungen neu gebildet. Umbenennungen und Änderungen an unbestätigten Events gehen dabei verloren. Bestätigte Events bleiben unverändert. An den Dateien ändert sich nichts.",
-    { title: "Vorschläge neu berechnen", kind: "warning", okLabel: "Neu berechnen", cancelLabel: "Abbrechen" },
+    t.events.reclusterDialog.message,
+    { title: t.events.reclusterDialog.title, kind: "warning", okLabel: t.events.reclusterDialog.ok, cancelLabel: t.common.cancel },
   );
   if (ok) await act(async () => {
     await saveSettings();
@@ -88,20 +89,19 @@ const confirm = (id: number, confirmed: boolean) => act(() => api.eventConfirm(i
 <template>
   <section class="mx-auto max-w-5xl px-8 py-8">
     <header class="flex flex-wrap items-center gap-3">
-      <h1 class="text-xl font-semibold tracking-tight">Events</h1>
+      <h1 class="text-xl font-semibold tracking-tight">{{ t.events.title }}</h1>
       <span v-if="data" class="text-stone-500 tabular-nums dark:text-stone-400">
-        {{ formatInt(data.events.length) }} Events · {{ formatInt(data.events.filter((e) => e.confirmed).length) }} bestätigt
+        {{ t.events.summary(formatInt(data.events.length), formatInt(data.events.filter((e) => e.confirmed).length)) }}
       </span>
       <button
         class="ml-auto rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800"
         @click="showSettings = !showSettings"
       >
-        Einstellungen für Vorschläge
+        {{ t.events.settingsToggle }}
       </button>
     </header>
     <p class="mt-2 max-w-2xl text-stone-500 dark:text-stone-400">
-      Sichter hat deine Aufnahmen nach Zeit und Ort zu Anlässen gruppiert. Benenne, teile oder führe sie zusammen und bestätige, was passt. Das betrifft nur
-      Sichter, an den Dateien ändert sich nichts.
+      {{ t.events.intro }}
     </p>
     <p v-if="error" class="mt-3 rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-500/10 dark:text-red-300">{{ error }}</p>
 
@@ -109,36 +109,36 @@ const confirm = (id: number, confirmed: boolean) => act(() => api.eventConfirm(i
     <div v-if="showSettings && data" class="mt-4 space-y-4 rounded-lg border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-900">
       <div class="flex flex-wrap items-center gap-x-6 gap-y-3">
         <label class="flex items-center gap-2">
-          Neues Event ab
+          {{ t.events.settings.gapBefore }}
           <input v-model.number="data.settings.gap_hours" type="number" min="0.25" max="72" step="0.5" class="w-16 rounded border border-stone-300 bg-transparent px-1.5 py-0.5 tabular-nums dark:border-stone-700" @change="saveSettings" />
-          Stunden Pause
+          {{ t.events.settings.gapAfter }}
         </label>
         <label class="flex items-center gap-2">
-          oder ab
+          {{ t.events.settings.gpsBefore }}
           <input v-model.number="data.settings.gps_km" type="number" min="1" max="5000" step="5" class="w-16 rounded border border-stone-300 bg-transparent px-1.5 py-0.5 tabular-nums dark:border-stone-700" @change="saveSettings" />
-          km Entfernung
+          {{ t.events.settings.gpsAfter }}
         </label>
         <label class="flex items-center gap-2">
           <input v-model="data.settings.merge_multiday" type="checkbox" class="accent-stone-800 dark:accent-stone-200" @change="saveSettings" />
-          Mehrtägige Aufenthalte am selben Ort zusammenfassen
+          {{ t.events.settings.mergeMultiday }}
         </label>
         <button
           :disabled="busy"
           class="ml-auto rounded-md bg-stone-900 px-3 py-1.5 text-white hover:bg-stone-700 disabled:opacity-40 dark:bg-stone-100 dark:text-stone-900"
           @click="recluster"
         >
-          Vorschläge neu berechnen
+          {{ t.events.settings.recluster }}
         </button>
       </div>
 
       <div v-if="data.cameras.length" class="border-t border-stone-100 pt-3 dark:border-stone-800">
-        <h3 class="font-medium">Videozeit ohne Zeitzone</h3>
+        <h3 class="font-medium">{{ t.events.settings.videoTzTitle }}</h3>
         <p class="mt-0.5 text-xs text-stone-500">
-          Laut Standard ist diese Zeit UTC, viele Kameras schreiben aber Ortszeit. Handys halten sich meist an den Standard. Lege pro Kamera fest, wie Sichter sie lesen soll.
+          {{ t.events.settings.videoTzHint }}
         </p>
         <ul class="mt-2 space-y-1.5">
           <li v-for="c in data.cameras" :key="c.camera" class="flex items-center gap-3">
-            <span class="min-w-0 flex-1 truncate">{{ c.camera }} <span class="text-stone-400">· {{ c.video_count }} Videos</span></span>
+            <span class="min-w-0 flex-1 truncate">{{ c.camera }} <span class="text-stone-400">· {{ t.events.settings.videos(c.video_count) }}</span></span>
             <div class="flex overflow-hidden rounded-md border border-stone-300 text-xs dark:border-stone-700">
               <button
                 v-for="m in ['local', 'utc'] as const"
@@ -147,12 +147,12 @@ const confirm = (id: number, confirmed: boolean) => act(() => api.eventConfirm(i
                 :class="c.mode === m ? 'bg-stone-900 text-white dark:bg-stone-100 dark:text-stone-900' : 'hover:bg-stone-100 dark:hover:bg-stone-800'"
                 @click="setCamera(c.camera, m)"
               >
-                {{ m === "local" ? "Ortszeit" : "UTC" }}
+                {{ m === "local" ? t.events.settings.localTime : t.events.settings.utc }}
               </button>
             </div>
             <span class="w-20 text-xs text-stone-400">
-              <template v-if="c.is_default">Standard</template>
-              <button v-else class="underline-offset-2 hover:underline" @click="setCamera(c.camera, null)">zurücksetzen</button>
+              <template v-if="c.is_default">{{ t.events.settings.isDefault }}</template>
+              <button v-else class="underline-offset-2 hover:underline" @click="setCamera(c.camera, null)">{{ t.events.settings.reset }}</button>
             </span>
           </li>
         </ul>
@@ -164,20 +164,20 @@ const confirm = (id: number, confirmed: boolean) => act(() => api.eventConfirm(i
       v-if="selected.size"
       class="sticky top-0 z-10 mt-4 flex items-center gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 dark:border-sky-900 dark:bg-sky-950"
     >
-      <span>{{ selected.size }} Events ausgewählt</span>
+      <span>{{ t.events.selection.count(selected.size) }}</span>
       <button
         :disabled="selected.size < 2 || busy"
         class="rounded-md bg-stone-900 px-3 py-1 text-white hover:bg-stone-700 disabled:opacity-40 dark:bg-stone-100 dark:text-stone-900"
         @click="merge"
       >
-        Zusammenführen
+        {{ t.events.selection.merge }}
       </button>
-      <button class="text-stone-600 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100" @click="selected = new Set()">Auswahl aufheben</button>
+      <button class="text-stone-600 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100" @click="selected = new Set()">{{ t.events.selection.clear }}</button>
     </div>
 
     <!-- Timeline -->
     <div v-if="data && !data.events.length" class="mt-6 rounded-lg border border-dashed border-stone-300 px-6 py-10 text-center text-stone-500 dark:border-stone-700">
-      Noch keine Events. Sie entstehen automatisch beim Scan in der Bibliothek.
+      {{ t.events.empty }}
     </div>
     <div v-for="month in timeline" :key="month.key" class="mt-6">
       <h2 class="mb-2 text-xs font-medium tracking-wide text-stone-500 uppercase dark:text-stone-400">{{ month.label }}</h2>
@@ -189,13 +189,13 @@ const confirm = (id: number, confirmed: boolean) => act(() => api.eventConfirm(i
           :selected="selected.has(e.id)"
           @toggle-select="toggleSelect(e.id)"
           @open="openId = e.id"
-          @rename="(t) => rename(e.id, t)"
+          @rename="(title) => rename(e.id, title)"
           @confirm="(c) => confirm(e.id, c)"
         />
       </div>
     </div>
     <p v-if="data && data.unassigned" class="mt-6 text-xs text-stone-400">
-      {{ formatInt(data.unassigned) }} Aufnahmen ohne Event (Metadaten noch nicht gelesen). Sie werden beim nächsten Scan einsortiert.
+      {{ t.events.unassigned(formatInt(data.unassigned)) }}
     </p>
 
     <EventDetail v-if="openEvent && data" :event="openEvent" :events="data.events" @close="openId = null" @changed="load" />

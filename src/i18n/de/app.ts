@@ -1,0 +1,42 @@
+export const app = {
+  nav: {
+    library: "Bibliothek",
+    storage: "Speicher",
+    events: "Events",
+    cull: "Sichten",
+    dupes: "Duplikate",
+    reorganize: "Umsortieren",
+    history: "Verlauf",
+    settings: "Einstellungen",
+  },
+  footer: {
+    files: (n: string) => `${n} Dateien`,
+    run: (id: number, paused: boolean) => `Lauf ${id} ${paused ? "pausiert" : "läuft"}`,
+    openPlans: (n: number) => (n === 0 ? "Keine offenen Pläne" : n === 1 ? "1 offener Plan" : `${n} offene Pläne`),
+    lastRun: (when: string | null) => (when ? `Letzter Lauf ${when} UTC` : "Noch kein Lauf"),
+    dryRun: "Dry-Run aktiv",
+    dryRunHint: "Pläne werden nur simuliert, es wird keine Datei verändert.",
+  },
+  scan: {
+    percent: (p: number) => `Scan ${p} %`,
+    cancel: "Abbrechen",
+    starting: "Scan startet",
+    phases: {
+      crawl: "Dateien suchen",
+      detect: "Dateitypen prüfen",
+      meta: "Metadaten lesen",
+      group: "Zusammengehörige Dateien erkennen",
+      hash: "Prüfsummen berechnen",
+      thumbs: "Vorschaubilder erzeugen",
+      done: "Abschließen",
+    },
+  },
+  system: {
+    sources: { bundled: "gebündelt", path: "System-PATH", env: "Umgebungsvariable" },
+    checking: "Werkzeuge werden geprüft …",
+    gplHint: "Für Releases wird ein LGPL-Build gebündelt.",
+    gpl: "GPL-Build, nur Entwicklung",
+    database: "Datenbank",
+    schema: (v: number) => `Schema v${v}`,
+  },
+};

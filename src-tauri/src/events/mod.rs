@@ -69,7 +69,7 @@ pub fn save_settings(conn: &Connection, s: &Settings) -> rusqlite::Result<()> {
 
 /// Kamerabezeichnung für die Zeitzonen-Einstellung.
 pub fn camera_label(make: Option<&str>, model: Option<&str>) -> String {
-    model.or(make).map(str::trim).filter(|s| !s.is_empty()).unwrap_or("Unbekannte Kamera").to_string()
+    model.or(make).map(str::trim).filter(|s| !s.is_empty()).unwrap_or(crate::i18n::tr("Unbekannte Kamera", "Unknown camera")).to_string()
 }
 
 #[derive(Debug, Clone, Serialize)]

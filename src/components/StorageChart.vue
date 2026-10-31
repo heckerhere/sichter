@@ -9,6 +9,7 @@ import { CanvasRenderer } from "echarts/renderers";
 import type { FolderRow, KindSize } from "../api";
 import { byCategory, resolvedColor, type Category } from "../categories";
 import { formatBytes, formatInt } from "../format";
+import { locale, t } from "../i18n";
 
 echarts.use([TreemapChart, SunburstChart, TooltipComponent, CanvasRenderer]);
 
@@ -71,8 +72,8 @@ function buildTree(): Node | null {
       if (f.own_size > 0) {
         const own = ownKinds(f, kids);
         node.children.push({
-          name: "Dateien direkt hier",
-          path: `${f.rel_path || props.rootLabel} (direkt)`,
+          name: t.storage.chart.filesHere,
+          path: t.storage.chart.direct(f.rel_path || props.rootLabel),
           value: f.own_size,
           files: own.reduce((s, k) => s + k.count, 0),
           kinds: own,
@@ -99,7 +100,7 @@ function tooltip(info: { data: Node }): string {
     .join("");
   return (
     `<div style="font-weight:600;margin-bottom:2px">${escapeHtml(n.path)}</div>` +
-    `<div style="margin-bottom:6px;opacity:.75">${formatBytes(n.value)} · ${formatInt(n.files)} Dateien</div>${rows}`
+    `<div style="margin-bottom:6px;opacity:.75">${formatBytes(n.value)} · ${t.storage.files(formatInt(n.files))}</div>${rows}`
   );
 }
 
@@ -200,7 +201,7 @@ onBeforeUnmount(() => {
   scheme.removeEventListener("change", onScheme);
   chart?.dispose();
 });
-watch(() => [props.folders, props.mode], render);
+watch(() => [props.folders, props.mode, locale.value], render);
 </script>
 
 <template>

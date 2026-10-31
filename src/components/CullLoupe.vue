@@ -2,18 +2,19 @@
 // Vollbild-Sichtung mit Tastatur (PLAN.md 6.3). Bewertungen nur in der Datenbank.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { api, mediaUrl, previewUrl, thumbUrl, type EventItem, type Flag } from "../api";
+import { t } from "../i18n";
 import { fileName, formatDate, formatDuration, formatInt } from "../format";
 
 const props = defineProps<{ eventId: number | null; title: string }>();
 const emit = defineEmits<{ close: [] }>();
 
 type Filter = "all" | "unrated" | "keep" | "reject" | "stars";
-const filters: { id: Filter; label: string; test: (i: EventItem) => boolean }[] = [
-  { id: "all", label: "Alle", test: () => true },
-  { id: "unrated", label: "Unbewertet", test: (i) => i.stars === 0 && i.flag === "none" },
-  { id: "keep", label: "Behalten", test: (i) => i.flag === "keep" },
-  { id: "reject", label: "Ausschuss", test: (i) => i.flag === "reject" },
-  { id: "stars", label: "3+ Sterne", test: (i) => i.stars >= 3 },
+const filters: { id: Filter; readonly label: string; test: (i: EventItem) => boolean }[] = [
+  { id: "all", get label() { return t.cull.filters.all; }, test: () => true },
+  { id: "unrated", get label() { return t.cull.filters.unrated; }, test: (i) => i.stars === 0 && i.flag === "none" },
+  { id: "keep", get label() { return t.cull.filters.keep; }, test: (i) => i.flag === "keep" },
+  { id: "reject", get label() { return t.cull.filters.reject; }, test: (i) => i.flag === "reject" },
+  { id: "stars", get label() { return t.cull.filters.stars; }, test: (i) => i.stars >= 3 },
 ];
 
 const all = ref<EventItem[]>([]);
@@ -113,7 +114,8 @@ async function rate(stars: number | null, flag: Flag | null, reset = false) {
     if (stars !== null) item.stars = stars;
     if (flag !== null) item.flag = flag;
   }
-  showFlash(reset ? "Zurückgesetzt" : flag === "keep" ? "Behalten" : flag === "reject" ? "Ausschuss" : `${stars} Sterne`);
+  const f = t.cull.loupe.flash;
+  showFlash(reset ? f.reset : flag === "keep" ? f.keep : flag === "reject" ? f.reject : f.stars(stars));
   try {
     if (reset) await api.resetRating(item.group_id);
     else await api.setRating(item.group_id, stars, flag);
@@ -186,7 +188,7 @@ const flagStyle: Record<Flag, string> = {
   <div class="fixed inset-0 z-30 flex flex-col bg-stone-950 text-stone-100 select-none">
     <!-- Kopfzeile -->
     <header class="flex items-center gap-3 px-4 pt-8 pb-2 text-xs" data-tauri-drag-region>
-      <button class="rounded-md px-2 py-1 hover:bg-stone-800" @click="emit('close')">← Zurück</button>
+      <button class="rounded-md px-2 py-1 hover:bg-stone-800" @click="emit('close')">{{ t.cull.loupe.back }}</button>
       <span class="max-w-72 truncate font-medium text-sm">{{ title }}</span>
       <span class="text-stone-400 tabular-nums">{{ list.length ? index + 1 : 0 }} / {{ formatInt(list.length) }}</span>
       <div class="ml-4 flex gap-1">
@@ -202,7 +204,7 @@ const flagStyle: Record<Flag, string> = {
       </div>
       <div class="ml-auto flex items-center gap-3">
         <label class="flex items-center gap-1.5 text-stone-400">
-          <input v-model="autoAdvance" type="checkbox" class="accent-stone-200" /> Nach P/X weiter
+          <input v-model="autoAdvance" type="checkbox" class="accent-stone-200" /> {{ t.cull.loupe.autoAdvance }}
         </label>
         <div class="flex overflow-hidden rounded-md border border-stone-700">
           <button
@@ -210,7 +212,7 @@ const flagStyle: Record<Flag, string> = {
             :key="n"
             class="px-2 py-0.5"
             :class="compare === n ? 'bg-stone-200 text-stone-900' : 'text-stone-400 hover:bg-stone-800'"
-            :title="n === 1 ? 'Einzelbild' : `${n} Bilder vergleichen`"
+            :title="n === 1 ? t.cull.loupe.single : t.cull.loupe.compare(n)"
             @click="compare = n; go(0)"
           >
             {{ n }}
@@ -222,7 +224,7 @@ const flagStyle: Record<Flag, string> = {
 
     <!-- Bildfläche -->
     <main class="relative grid min-h-0 flex-1 gap-2 px-4" :style="{ gridTemplateColumns: `repeat(${shown.length || 1}, minmax(0, 1fr))` }">
-      <p v-if="!list.length" class="m-auto text-stone-500">Keine Aufnahmen für diesen Filter.</p>
+      <p v-if="!list.length" class="m-auto text-stone-500">{{ t.cull.loupe.noneForFilter }}</p>
       <div
         v-for="(item, i) in shown"
         :key="item.group_id"
@@ -243,9 +245,9 @@ const flagStyle: Record<Flag, string> = {
           />
           <div v-else class="flex flex-col items-center gap-3 text-center">
             <img v-if="item.preview_hash" :src="previewUrl(item.preview_hash)" class="max-h-[60vh] max-w-full rounded" />
-            <p class="text-stone-400">Dieses Videoformat kann hier nicht abgespielt werden.</p>
+            <p class="text-stone-400">{{ t.cull.loupe.videoUnsupported }}</p>
             <button class="rounded-md bg-stone-100 px-3 py-1.5 text-stone-900 hover:bg-white" @click="openExternal(item.video_asset_id!)">
-              Im Standardplayer öffnen
+              {{ t.cull.loupe.openInPlayer }}
             </button>
           </div>
         </template>
@@ -263,16 +265,16 @@ const flagStyle: Record<Flag, string> = {
             @load="loaded = new Set(loaded).add(item.preview_hash!)"
           />
         </template>
-        <p v-else class="text-stone-500">Kein Vorschaubild verfügbar</p>
+        <p v-else class="text-stone-500">{{ t.cull.loupe.noPreview }}</p>
 
         <!-- Bewertung -->
         <div class="pointer-events-none absolute top-2 left-2 flex items-center gap-1.5">
           <span v-if="item.flag !== 'none'" class="rounded px-1.5 py-0.5 text-[11px] font-medium" :class="flagStyle[item.flag]">
-            {{ item.flag === "keep" ? "Behalten" : "Ausschuss" }}
+            {{ item.flag === "keep" ? t.cull.loupe.keep : t.cull.loupe.reject }}
           </span>
           <span v-if="item.stars" class="rounded bg-black/60 px-1.5 py-0.5 text-[11px] tracking-wider text-amber-300">{{ "★".repeat(item.stars) }}</span>
-          <span v-if="burstPosition(item)" class="rounded bg-sky-500/80 px-1.5 py-0.5 text-[11px] font-medium text-white" title="Serie: Taste B zeigt alle Bilder nebeneinander">
-            Serie {{ burstPosition(item) }}
+          <span v-if="burstPosition(item)" class="rounded bg-sky-500/80 px-1.5 py-0.5 text-[11px] font-medium text-white" :title="t.cull.loupe.burstHint">
+            {{ t.cull.loupe.burst(burstPosition(item)!) }}
           </span>
         </div>
       </div>
@@ -284,10 +286,10 @@ const flagStyle: Record<Flag, string> = {
     <!-- Info und Tasten -->
     <div v-if="current" class="flex items-center gap-4 px-4 py-2 text-xs text-stone-400">
       <span class="max-w-96 truncate text-stone-200" :title="current.rel_path">{{ fileName(current.rel_path) }}</span>
-      <span class="tabular-nums">{{ formatDate(current.time) }}<template v-if="current.date_source && current.date_source !== 'exif'"> · Datum unsicher</template></span>
+      <span class="tabular-nums">{{ formatDate(current.time) }}<template v-if="current.date_source && current.date_source !== 'exif'">{{ t.cull.loupe.uncertainDate }}</template></span>
       <span v-if="current.duration_s" class="tabular-nums">{{ formatDuration(current.duration_s) }}</span>
       <span v-if="current.kinds.includes('raw') && current.kinds.some((k) => k === 'jpeg' || k === 'heic')">RAW+JPEG</span>
-      <span class="ml-auto">← → blättern · P behalten · X Ausschuss · 1–5 Sterne · 0 keine Sterne · U zurücksetzen · C vergleichen · B Serie · Leertaste Video · Esc</span>
+      <span class="ml-auto">{{ t.cull.loupe.shortcuts }}</span>
     </div>
 
     <!-- Filmstreifen -->

@@ -1,0 +1,58 @@
+export const cull = {
+  title: "Sichten",
+  intro:
+    "Bewerte Aufnahmen im Vollbild mit der Tastatur. Ausschuss bleibt liegen, bis du ihn in einem eigenen Schritt verschiebst. Bewertungen speichert nur Sichter, die Dateien bleiben unverändert.",
+  rejectsMarked: (n: number) => `${n} Aufnahmen als Ausschuss markiert.`,
+  rejectsStay: "Sie liegen noch an ihrem Ort.",
+  moveToRejectsFolder: "Nach _Aussortiert verschieben …",
+  toTrash: "In den Papierkorb …",
+  xmpHint: "Bewertungen von RAW-Aufnahmen für Lightroom & Co. als XMP-Sidecar speichern.",
+  xmpExport: "Als XMP exportieren …",
+  allPhotos: "Alle Aufnahmen",
+  totals: (rated: string, count: string, keep: number, reject: number) =>
+    `${rated} von ${count} bewertet · ${keep} behalten · ${reject} Ausschuss`,
+  photos: (n: string) => `${n} Aufnahmen`,
+  barTitle: (keep: number, reject: number, rated: number) => `${keep} behalten, ${reject} Ausschuss, ${rated} bewertet`,
+  rated: (rated: number, count: number) => `${rated} / ${count} bewertet`,
+  empty: "Noch keine Aufnahmen. Füge in der Bibliothek einen Ordner hinzu.",
+  filters: {
+    all: "Alle",
+    unrated: "Unbewertet",
+    keep: "Behalten",
+    reject: "Ausschuss",
+    stars: "3+ Sterne",
+  },
+  loupe: {
+    back: "← Zurück",
+    autoAdvance: "Nach P/X weiter",
+    single: "Einzelbild",
+    compare: (n: number) => `${n} Bilder vergleichen`,
+    noneForFilter: "Keine Aufnahmen für diesen Filter.",
+    videoUnsupported: "Dieses Videoformat kann hier nicht abgespielt werden.",
+    openInPlayer: "Im Standardplayer öffnen",
+    noPreview: "Kein Vorschaubild verfügbar",
+    keep: "Behalten",
+    reject: "Ausschuss",
+    burstHint: "Serie: Taste B zeigt alle Bilder nebeneinander",
+    burst: (pos: string) => `Serie ${pos}`,
+    uncertainDate: " · Datum unsicher",
+    shortcuts:
+      "← → blättern · P behalten · X Ausschuss · 1–5 Sterne · 0 keine Sterne · U zurücksetzen · C vergleichen · B Serie · Leertaste Video · Esc",
+    flash: {
+      reset: "Zurückgesetzt",
+      keep: "Behalten",
+      reject: "Ausschuss",
+      stars: (n: number | null) => `${n} Sterne`,
+    },
+  },
+  trash: {
+    title: "Ausschuss in den Papierkorb",
+    intro:
+      "Hake jede Aufnahme an, die in den Papierkorb soll. Mit ihr kommen alle zugehörigen Dateien mit (RAW, JPEG, Sidecars). Du siehst danach noch den Plan.",
+    empty: "Nichts als Ausschuss markiert.",
+    selectNone: "Keine auswählen",
+    selectAll: "Alle auswählen",
+    approved: (n: number, size: string) => `${n} freigegeben · ${size}`,
+    plan: "Plan erstellen",
+  },
+};

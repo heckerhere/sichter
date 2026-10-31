@@ -4,15 +4,16 @@ import PlaceholderView from "./views/PlaceholderView.vue";
 import SettingsView from "./views/SettingsView.vue";
 
 export const sections = [
-  { path: "/", name: "Bibliothek", icon: "library" },
-  { path: "/speicher", name: "Speicher", icon: "storage", phase: 2 },
-  { path: "/events", name: "Events", icon: "events", phase: 4 },
-  { path: "/sichten", name: "Sichten", icon: "cull", phase: 5 },
-  { path: "/duplikate", name: "Duplikate", icon: "dupes", phase: 3 },
-  { path: "/umsortieren", name: "Umsortieren", icon: "reorg", phase: 6 },
-  { path: "/verlauf", name: "Verlauf", icon: "history", phase: 6 },
-  { path: "/einstellungen", name: "Einstellungen", icon: "settings", phase: 7 },
+  { path: "/", name: "library", icon: "library" },
+  { path: "/speicher", name: "storage", icon: "storage", phase: 2 },
+  { path: "/events", name: "events", icon: "events", phase: 4 },
+  { path: "/sichten", name: "cull", icon: "cull", phase: 5 },
+  { path: "/duplikate", name: "dupes", icon: "dupes", phase: 3 },
+  { path: "/umsortieren", name: "reorganize", icon: "reorg", phase: 6 },
+  { path: "/verlauf", name: "history", icon: "history", phase: 6 },
+  { path: "/einstellungen", name: "settings", icon: "settings", phase: 7 },
 ] as const;
+// `name` ist der Schlüssel in t.app.nav.
 
 export const router = createRouter({
   history: createWebHashHistory(),

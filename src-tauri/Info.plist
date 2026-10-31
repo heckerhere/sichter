@@ -3,6 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Sichter liest deine Fotos-Mediathek nur, um Originale auf deinen Wunsch in einen Ordner zu kopieren. Die Mediathek selbst wird nicht verändert.</string>
+	<string>Sichter only reads your Photos library to copy originals into a folder when you ask it to. The library itself is never modified.</string>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleLocalizations</key>
+	<array>
+		<string>en</string>
+		<string>de</string>
+	</array>
 </dict>
 </plist>

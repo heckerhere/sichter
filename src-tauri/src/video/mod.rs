@@ -81,7 +81,7 @@ pub fn extract_frame_jpeg(ffmpeg: &ToolCommand, path: &Path, at_s: Option<f64>, 
         .map_err(|e| e.to_string())?;
     if !output.status.success() || output.stdout.is_empty() {
         let err = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        return Err(if err.is_empty() { "kein Bild erzeugt".into() } else { err });
+        return Err(if err.is_empty() { crate::i18n::tr("kein Bild erzeugt", "no image produced").into() } else { err });
     }
     Ok(output.stdout)
 }

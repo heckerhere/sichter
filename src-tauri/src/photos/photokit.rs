@@ -116,7 +116,7 @@ fn resources(asset: &PHAsset) -> Vec<Resource> {
 impl PhotoLibrary for PhotoKit {
     fn assets(&self, opts: &ListOptions, progress: &dyn Fn(usize, usize)) -> Result<Vec<Asset>, String> {
         if !access().can_read() {
-            return Err("Kein Zugriff auf die Fotos-Mediathek. Bitte in den Systemeinstellungen unter Datenschutz & Sicherheit → Fotos erlauben.".into());
+            return Err(crate::i18n::tr("Kein Zugriff auf die Fotos-Mediathek. Bitte in den Systemeinstellungen unter Datenschutz & Sicherheit → Fotos erlauben.", "No access to the Photos library. Please allow it in System Settings → Privacy & Security → Photos.").into());
         }
         autoreleasepool(|_| {
             let options = fetch_options(opts.include_hidden);
@@ -149,7 +149,7 @@ impl PhotoLibrary for PhotoKit {
     }
 
     fn export(&self, asset_id: &str, kind: ResourceKind, original_name: &str, to: &Path, allow_network: bool) -> Result<(), String> {
-        let path = to.to_str().ok_or("Zielpfad ist kein gültiges UTF-8")?;
+        let path = to.to_str().ok_or(crate::i18n::tr("Zielpfad ist kein gültiges UTF-8", "Target path is not valid UTF-8"))?;
         autoreleasepool(|_| {
             // SAFETY: lesende PhotoKit-Aufrufe; geschrieben wird nur nach `to`,
             // eine Datei, die fsops gerade frei gewählt hat.
@@ -157,7 +157,7 @@ impl PhotoLibrary for PhotoKit {
                 let ids = NSArray::from_retained_slice(&[NSString::from_str(asset_id)]);
                 let found = PHAsset::fetchAssetsWithLocalIdentifiers_options(&ids, Some(&fetch_options(true)));
                 if found.count() == 0 {
-                    return Err("Foto ist nicht mehr in der Mediathek".to_string());
+                    return Err(crate::i18n::tr("Foto ist nicht mehr in der Mediathek", "Photo is no longer in the library").to_string());
                 }
                 let asset = found.objectAtIndex(0);
                 let list = PHAssetResource::assetResourcesForAsset(&asset);
@@ -167,7 +167,7 @@ impl PhotoLibrary for PhotoKit {
                     .iter()
                     .find(|r| r.originalFilename().to_string() == original_name)
                     .or(candidates.first())
-                    .ok_or("Originaldatei ist nicht mehr in der Mediathek")?;
+                    .ok_or(crate::i18n::tr("Originaldatei ist nicht mehr in der Mediathek", "Original file is no longer in the library"))?;
 
                 let options = PHAssetResourceRequestOptions::new();
                 options.setNetworkAccessAllowed(allow_network);
@@ -184,9 +184,9 @@ impl PhotoLibrary for PhotoKit {
                 PHAssetResourceManager::defaultManager().writeDataForAssetResource_toFile_options_completionHandler(resource, &url, Some(&options), &done);
                 match rx.recv() {
                     Ok(None) => Ok(()),
-                    Ok(Some(message)) if !allow_network => Err(format!("{message} (Original liegt evtl. nur in iCloud)")),
+                    Ok(Some(message)) if !allow_network => Err(crate::trf!("{} (Original liegt evtl. nur in iCloud)", "{} (the original may only be in iCloud)", message)),
                     Ok(Some(message)) => Err(message),
-                    Err(_) => Err("Export wurde abgebrochen".to_string()),
+                    Err(_) => Err(crate::i18n::tr("Export wurde abgebrochen", "Export was cancelled").to_string()),
                 }
             }
         })

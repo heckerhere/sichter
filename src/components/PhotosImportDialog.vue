@@ -6,6 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type PhotosAccess } from "../api";
 import { formatInt } from "../format";
+import { t } from "../i18n";
 
 const emit = defineEmits<{ close: []; planned: [runId: number] }>();
 
@@ -30,7 +31,7 @@ const reading = computed(() => !!progress.value && progress.value.done < progres
 const blocked = computed(() => access.value === "denied" || access.value === "restricted");
 
 async function pickTarget() {
-  const picked = await open({ directory: true, multiple: false, title: "Zielordner für den Import" });
+  const picked = await open({ directory: true, multiple: false, title: t.library.photos.pickTargetTitle });
   if (typeof picked === "string") target.value = picked;
 }
 
@@ -54,51 +55,50 @@ async function plan() {
 <template>
   <div class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-8">
     <div class="w-full max-w-xl rounded-xl bg-white p-5 shadow-xl dark:bg-stone-900">
-      <h2 class="text-lg font-semibold">Aus der Fotos-Mediathek importieren</h2>
+      <h2 class="text-lg font-semibold">{{ t.library.photos.title }}</h2>
       <p class="mt-1 text-stone-500 dark:text-stone-400">
-        Sichter kopiert die Originale (inklusive RAW und Live-Photo-Videos) in einen Ordner, sortiert nach
-        <span class="font-mono text-xs">Jahr/Datum</span>. Die Mediathek bleibt unverändert, Bearbeitungen aus Fotos bleiben in Fotos. Der Ordner wird danach
-        zur Bibliothek hinzugefügt und gescannt.
+        {{ t.library.photos.introBefore }}
+        <span class="font-mono text-xs">{{ t.library.photos.introPattern }}</span>{{ t.library.photos.introAfter }}
       </p>
 
       <div v-if="blocked" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-        Sichter hat keinen Zugriff auf die Fotos-Mediathek. Erlaube ihn unter Systemeinstellungen → Datenschutz &amp; Sicherheit → Fotos und starte Sichter danach neu.
+        {{ t.library.photos.blocked }}
         <button class="mt-2 block rounded-md border border-amber-300 px-2.5 py-1 text-xs hover:bg-amber-100 dark:border-amber-800 dark:hover:bg-amber-900" @click="api.photosOpenPrivacySettings()">
-          Systemeinstellungen öffnen
+          {{ t.library.photos.openSettings }}
         </button>
       </div>
       <p v-else-if="access === 'limited'" class="mt-4 rounded-md bg-stone-100 px-3 py-2 text-xs text-stone-600 dark:bg-stone-800 dark:text-stone-300">
-        Du hast nur ausgewählte Fotos freigegeben. Es werden nur diese importiert.
+        {{ t.library.photos.limited }}
       </p>
 
       <div class="mt-4 flex items-center gap-3">
-        <button class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="pickTarget">Zielordner wählen …</button>
-        <span class="min-w-0 flex-1 truncate font-mono text-xs" :class="target ? '' : 'text-stone-400'" :title="target ?? ''">{{ target ?? "noch keiner gewählt" }}</span>
+        <button class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="pickTarget">{{ t.library.photos.pickTarget }}</button>
+        <span class="min-w-0 flex-1 truncate font-mono text-xs" :class="target ? '' : 'text-stone-400'" :title="target ?? ''">{{ target ?? t.library.photos.noTarget }}</span>
       </div>
 
       <label class="mt-4 flex items-start gap-2">
         <input v-model="downloadOriginals" type="checkbox" class="mt-0.5 size-4" />
         <span>
-          Originale aus iCloud laden
-          <span class="block text-xs text-stone-500">Bei „Mac-Speicher optimieren“ liegen viele Originale nur in iCloud. Ohne diese Option werden sie übersprungen.</span>
+          {{ t.library.photos.downloadOriginals }}
+          <span class="block text-xs text-stone-500">{{ t.library.photos.downloadOriginalsHint }}</span>
         </span>
       </label>
       <label class="mt-2 flex items-start gap-2">
         <input v-model="includeHidden" type="checkbox" class="mt-0.5 size-4" />
-        <span>Ausgeblendete Fotos mit importieren</span>
+        <span>{{ t.library.photos.includeHidden }}</span>
       </label>
 
       <p v-if="error" class="mt-3 rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-500/10 dark:text-red-300">{{ error }}</p>
 
       <div v-if="busy" class="mt-4">
         <div class="flex items-baseline gap-2 text-xs text-stone-500">
-          <span v-if="!progress">Warte auf die Fotos-Mediathek …</span>
+          <span v-if="!progress">{{ t.library.photos.waiting }}</span>
           <template v-else-if="reading">
-            <span>Mediathek wird gelesen</span>
-            <span class="tabular-nums">{{ formatInt(progress.done) }} / {{ formatInt(progress.total) }} Objekte</span>
-            <span class="ml-auto font-medium tabular-nums text-stone-700 dark:text-stone-300">{{ percent }} %</span>
+            <span>{{ t.library.photos.reading }}</span>
+            <span class="tabular-nums">{{ t.library.photos.objects(formatInt(progress.done), formatInt(progress.total)) }}</span>
+            <span class="ml-auto font-medium tabular-nums text-stone-700 dark:text-stone-300">{{ t.library.photos.percent(percent) }}</span>
           </template>
-          <span v-else>{{ formatInt(progress.total) }} Objekte gelesen, Plan wird erstellt …</span>
+          <span v-else>{{ t.library.photos.planning(formatInt(progress.total)) }}</span>
         </div>
         <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-stone-100 dark:bg-stone-800">
           <div
@@ -110,13 +110,13 @@ async function plan() {
       </div>
 
       <div class="mt-5 flex items-center justify-end gap-2">
-        <button class="rounded-md border border-stone-300 px-3 py-1.5 dark:border-stone-700" @click="emit('close')">Abbrechen</button>
+        <button class="rounded-md border border-stone-300 px-3 py-1.5 dark:border-stone-700" @click="emit('close')">{{ t.common.cancel }}</button>
         <button
           :disabled="!target || busy || blocked"
           class="rounded-md bg-stone-900 px-3 py-1.5 text-white hover:bg-stone-700 disabled:opacity-40 dark:bg-stone-100 dark:text-stone-900"
           @click="plan"
         >
-          Plan erstellen
+          {{ t.library.photos.createPlan }}
         </button>
       </div>
     </div>

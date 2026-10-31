@@ -25,23 +25,23 @@ use crate::hash::{self, FileHash};
 
 #[derive(Debug, thiserror::Error)]
 pub enum FsOpError {
-    #[error("Quelle fehlt oder ist keine reguläre Datei: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Quelle fehlt oder ist keine reguläre Datei", "Source missing or not a regular file"), .0.display())]
     SourceMissing(PathBuf),
-    #[error("Quelle hat sich seit dem Scan verändert: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Quelle hat sich seit dem Scan verändert", "Source changed since the scan"), .0.display())]
     SourceChanged(PathBuf),
-    #[error("Ziel existiert bereits: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Ziel existiert bereits", "Target already exists"), .0.display())]
     DestinationExists(PathBuf),
-    #[error("Zielordner existiert nicht: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Zielordner existiert nicht", "Target folder does not exist"), .0.display())]
     MissingParent(PathBuf),
-    #[error("Pfad liegt in einem gesperrten Ordner: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Pfad liegt in einem gesperrten Ordner", "Path is inside a locked folder"), .0.display())]
     Locked(PathBuf),
-    #[error("Kopie stimmt nicht mit der Quelle überein, Quelle bleibt unverändert: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Kopie stimmt nicht mit der Quelle überein, Quelle bleibt unverändert", "Copy does not match the source, source left unchanged"), .0.display())]
     CopyVerifyFailed(PathBuf),
-    #[error("Pfad ist kein Ordner: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Pfad ist kein Ordner", "Path is not a folder"), .0.display())]
     NotADirectory(PathBuf),
-    #[error("Nur XMP-Sidecars dürfen geschrieben werden: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Nur XMP-Sidecars dürfen geschrieben werden", "Only XMP sidecars may be written"), .0.display())]
     NotASidecar(PathBuf),
-    #[error("Export aus der Mediathek fehlgeschlagen: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Export aus der Mediathek fehlgeschlagen", "Export from the Photos library failed"), .0)]
     Export(String),
     #[error(transparent)]
     Io(#[from] io::Error),
@@ -308,7 +308,7 @@ pub fn export_new_file(
     remove_own_tmp(&tmp);
     let result = (|| -> Result<FileHash> {
         write(&tmp).map_err(FsOpError::Export)?;
-        let file = File::options().write(true).open(&tmp).map_err(|_| FsOpError::Export("Die Mediathek hat keine Datei geliefert".into()))?;
+        let file = File::options().write(true).open(&tmp).map_err(|_| FsOpError::Export(crate::i18n::tr("Die Mediathek hat keine Datei geliefert", "The Photos library did not deliver a file").into()))?;
         if let Some(t) = modified {
             file.set_modified(t)?;
         }

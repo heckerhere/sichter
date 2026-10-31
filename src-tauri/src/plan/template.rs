@@ -8,8 +8,23 @@
 use chrono::{Datelike, NaiveDate};
 use unicode_normalization::UnicodeNormalization;
 
+use crate::i18n::tr;
+use crate::trf;
+
 pub const DEFAULT_TEMPLATE: &str = "{Jahr}/{Datum} {Anlass}/{Original-Dateiname}";
 pub const PLACEHOLDERS: &[&str] = &["{Jahr}", "{Monat}", "{Datum}", "{Anlass}", "{Ort}", "{Kamera}", "{Original-Dateiname}"];
+/// Englische Schreibweise, gleiche Reihenfolge wie [`PLACEHOLDERS`]. Beide
+/// werden immer akzeptiert, unabhängig von der eingestellten Sprache.
+pub const PLACEHOLDERS_EN: &[&str] = &["{Year}", "{Month}", "{Date}", "{Event}", "{Place}", "{Camera}", "{Original-Filename}"];
+
+/// Englische Platzhalter auf die deutschen abbilden (intern wird deutsch gerechnet).
+fn canonical(template: &str) -> String {
+    PLACEHOLDERS_EN.iter().zip(PLACEHOLDERS).fold(template.to_string(), |acc, (en, de)| acc.replace(en, de))
+}
+
+fn placeholders() -> &'static [&'static str] {
+    if crate::i18n::is_english() { PLACEHOLDERS_EN } else { PLACEHOLDERS }
+}
 /// Längenlimit je Pfadteil (Zeichen). Hält auch tiefe Strukturen unter den
 /// Grenzen gängiger Dateisysteme.
 const MAX_SEGMENT: usize = 120;
@@ -33,19 +48,20 @@ pub struct Context<'a> {
 }
 
 pub fn validate(template: &str) -> Result<(), String> {
-    let t = template.trim();
+    let canonical = canonical(template);
+    let t = canonical.trim();
     if t.is_empty() {
-        return Err("Die Vorlage ist leer.".into());
+        return Err(tr("Die Vorlage ist leer.", "The template is empty.").into());
     }
     if t.starts_with('/') || t.starts_with('\\') || t.contains(':') {
-        return Err("Die Vorlage muss ein relativer Pfad sein.".into());
+        return Err(tr("Die Vorlage muss ein relativer Pfad sein.", "The template must be a relative path.").into());
     }
     let segments: Vec<&str> = t.split(['/', '\\']).collect();
     if segments.iter().any(|s| s.trim() == ".." || s.trim() == ".") {
-        return Err("„..“ und „.“ sind in der Vorlage nicht erlaubt.".into());
+        return Err(tr("„..“ und „.“ sind in der Vorlage nicht erlaubt.", "“..” and “.” are not allowed in the template.").into());
     }
     if !segments.last().is_some_and(|s| s.contains("{Original-Dateiname}")) {
-        return Err("Der letzte Teil der Vorlage muss {Original-Dateiname} enthalten.".into());
+        return Err(trf!("Der letzte Teil der Vorlage muss {} enthalten.", "The last part of the template must contain {}.", placeholders()[6]));
     }
     let mut rest = t.to_string();
     for p in PLACEHOLDERS {
@@ -53,15 +69,16 @@ pub fn validate(template: &str) -> Result<(), String> {
     }
     if let Some(start) = rest.find('{') {
         let unknown: String = rest[start..].chars().take_while(|c| *c != '}').chain(Some('}')).collect();
-        return Err(format!("Unbekannter Platzhalter {unknown}. Erlaubt: {}", PLACEHOLDERS.join(", ")));
+        return Err(trf!("Unbekannter Platzhalter {}. Erlaubt: {}", "Unknown placeholder {}. Allowed: {}", unknown, placeholders().join(", ")));
     }
     Ok(())
 }
 
 /// Wendet die Vorlage an. Ergebnis: bereinigte Ordnerteile und Dateiname.
 pub fn render(template: &str, ctx: &Context) -> (Vec<String>, String) {
+    let template = &canonical(template);
     let date = if ctx.date_range && ctx.end != ctx.start {
-        format!("{} bis {}", ctx.start.format("%Y-%m-%d"), ctx.end.format("%Y-%m-%d"))
+        format!("{}{}{}", ctx.start.format("%Y-%m-%d"), tr(" bis ", " to "), ctx.end.format("%Y-%m-%d"))
     } else {
         ctx.start.format("%Y-%m-%d").to_string()
     };
@@ -208,6 +225,15 @@ mod tests {
         assert!(validate("{Jahr}/{Ort}/{Original-Dateiname}").is_ok());
         let err = validate("{Jahr}/{Wetter}/{Original-Dateiname}").unwrap_err();
         assert!(err.contains("{Wetter}"), "{err}");
+    }
+
+    #[test]
+    fn english_placeholders_are_equivalent() {
+        assert!(validate("{Year}/{Date} {Event}/{Original-Filename}").is_ok());
+        let de = render(DEFAULT_TEMPLATE, &ctx("Kroatien", "IMG_0001.CR2"));
+        let en = render("{Year}/{Date} {Event}/{Original-Filename}", &ctx("Kroatien", "IMG_0001.CR2"));
+        assert_eq!(de, en);
+        assert!(validate("{Year}/{Weather}/{Original-Filename}").is_err());
     }
 
     #[test]

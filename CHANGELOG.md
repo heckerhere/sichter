@@ -1,5 +1,15 @@
 # Changelog
 
+## Englisch als zweite Sprache (2026-10-31)
+
+- **Oberfläche auf Deutsch und Englisch**, Standard ist die Systemsprache, umschaltbar unter Einstellungen → Sprache (gespeichert als `ui.language`). Texte liegen in typgeprüften Katalogen `src/i18n/{de,en}/`; fehlt eine englische Übersetzung, schlägt `vue-tsc` fehl. Datum und Zahlen je Sprache (englisch ISO-Datum `2024-05-09`).
+- **Backend-Meldungen** über `i18n::tr`/`trf!` in beiden Sprachen, auch Fehlertypen. Laufnamen neuer Pläne in der eingestellten Sprache.
+- **Ordnernamen, die Sichter anlegt**, je Sprache: `_Unsortiert`/`_Unsorted`, `_Aussortiert`/`_Rejected`, `_Duplikate`/`_Duplicates`, `Ohne Datum`/`No date`. Ein schon aussortierter Ordner wird in beiden Schreibweisen erkannt.
+- **Vorlagen-Platzhalter** zusätzlich englisch (`{Year}`, `{Month}`, `{Date}`, `{Event}`, `{Place}`, `{Camera}`, `{Original-Filename}`), beide Schreibweisen gelten immer. Mehrtägig „bis“/„to“.
+- **macOS-Zugriffstext** für die Fotos-Mediathek auf Englisch und Deutsch (`InfoPlist.strings`).
+- **Fortschrittsanzeige** beim Einlesen der Fotos-Mediathek.
+- **README-Screenshots** auf Englisch.
+
 ## Import aus der Fotos-Mediathek, englische README (2026-10-31)
 
 - **Import aus Apple Fotos (macOS):** Bibliothek → „Aus Fotos importieren“. Liest die Mediathek über PhotoKit (`src/photos/`, nur lesend; der direkte Zugriff auf das `.photoslibrary`-Paket ist durch macOS gesperrt und liefert nur UUID-Namen). Kopiert die Originale (Foto, Video, RAW-Alternative, Live-Photo-Video, alle Serienbilder) nach `<Ziel>/<Jahr>/<Datum>/<Originalname>`, Objekte ohne Datum nach `Ohne Datum`. Bearbeitungen bleiben in Fotos, geteilte Alben anderer werden nicht importiert, ausgeblendete Fotos nur auf Wunsch. Originale nur in iCloud werden optional heruntergeladen. Danach wird der Zielordner aufgenommen und gescannt.

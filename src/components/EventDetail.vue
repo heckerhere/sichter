@@ -3,6 +3,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { api, type EventCard, type EventItem, type GridItem } from "../api";
 import { formatInt, formatRange } from "../format";
+import { t } from "../i18n";
 import VirtualGrid from "./VirtualGrid.vue";
 import GridTile from "./GridTile.vue";
 
@@ -40,8 +41,8 @@ const tiles = computed<GridItem[]>(() =>
 const index = computed(() => props.events.findIndex((e) => e.id === props.event.id));
 const neighbours = computed(() =>
   [
-    { label: "Vorheriges Event", event: props.events[index.value - 1] },
-    { label: "Nächstes Event", event: props.events[index.value + 1] },
+    { label: t.events.detail.previous, event: props.events[index.value - 1] },
+    { label: t.events.detail.next, event: props.events[index.value + 1] },
   ].filter((n) => n.event),
 );
 const label = (e: EventCard) => e.title || e.suggested_title || formatRange(e.date_start, e.date_end);
@@ -78,31 +79,31 @@ const saveNotes = () => notes.value !== props.event.notes && run(() => api.event
 <template>
   <div class="fixed inset-0 z-20 flex flex-col bg-stone-50 dark:bg-stone-950">
     <header class="flex items-center gap-4 border-b border-stone-200 px-6 pt-8 pb-3 dark:border-stone-800" data-tauri-drag-region>
-      <button class="rounded-md px-2 py-1 text-stone-600 hover:bg-stone-200/70 dark:text-stone-400 dark:hover:bg-stone-800" @click="emit('close')">← Zurück</button>
+      <button class="rounded-md px-2 py-1 text-stone-600 hover:bg-stone-200/70 dark:text-stone-400 dark:hover:bg-stone-800" @click="emit('close')">{{ t.events.detail.back }}</button>
       <div class="min-w-0">
         <h2 class="truncate text-lg font-semibold tracking-tight">{{ label(event) }}</h2>
-        <p class="text-xs text-stone-500 tabular-nums">{{ formatRange(event.date_start, event.date_end) }} · {{ formatInt(items.length) }} Aufnahmen</p>
+        <p class="text-xs text-stone-500 tabular-nums">{{ formatRange(event.date_start, event.date_end) }} · {{ t.events.detail.photos(formatInt(items.length)) }}</p>
       </div>
       <input
         v-model="notes"
         class="ml-auto w-72 rounded-md border border-stone-200 bg-white px-2.5 py-1 text-xs dark:border-stone-700 dark:bg-stone-900"
-        placeholder="Notiz zum Event"
+        :placeholder="t.events.detail.notePlaceholder"
         @blur="saveNotes"
       />
     </header>
 
     <div class="flex flex-wrap items-center gap-2 px-6 py-2.5 text-xs">
-      <span class="text-stone-500">{{ selected.size ? `${selected.size} ausgewählt` : "Aufnahmen anklicken, um sie auszuwählen" }}</span>
+      <span class="text-stone-500">{{ selected.size ? t.events.detail.selected(selected.size) : t.events.detail.selectHint }}</span>
       <button
         :disabled="!splitTarget"
         class="rounded-md border border-stone-300 px-2.5 py-1 hover:bg-stone-100 disabled:opacity-40 dark:border-stone-700 dark:hover:bg-stone-800"
-        title="Die gewählte Aufnahme und alle späteren werden ein eigenes Event"
+        :title="t.events.detail.splitHint"
         @click="split"
       >
-        Ab hier teilen
+        {{ t.events.detail.split }}
       </button>
       <template v-if="selected.size">
-        <span class="ml-2 text-stone-500">Verschieben nach:</span>
+        <span class="ml-2 text-stone-500">{{ t.events.detail.moveTo }}</span>
         <button
           v-for="n in neighbours"
           :key="n.event!.id"
@@ -112,10 +113,10 @@ const saveNotes = () => notes.value !== props.event.notes && run(() => api.event
         >
           {{ n.label }}: {{ label(n.event!) }}
         </button>
-        <button class="rounded-md border border-stone-300 px-2.5 py-1 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="moveTo(null)">Neues Event</button>
-        <button class="text-stone-500 hover:text-stone-800 dark:hover:text-stone-200" @click="selected = new Set()">Auswahl aufheben</button>
+        <button class="rounded-md border border-stone-300 px-2.5 py-1 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="moveTo(null)">{{ t.events.detail.newEvent }}</button>
+        <button class="text-stone-500 hover:text-stone-800 dark:hover:text-stone-200" @click="selected = new Set()">{{ t.events.detail.clearSelection }}</button>
       </template>
-      <span class="ml-auto text-stone-400">Nur in Sichter, an den Dateien ändert sich nichts.</span>
+      <span class="ml-auto text-stone-400">{{ t.events.detail.onlyInApp }}</span>
     </div>
     <p v-if="error" class="mx-6 mb-2 rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-500/10 dark:text-red-300">{{ error }}</p>
 

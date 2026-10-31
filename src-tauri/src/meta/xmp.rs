@@ -37,7 +37,7 @@ pub fn merge(exiftool: &ToolCommand, path: &Path, rating: i64) -> Result<Vec<u8>
         .map_err(|e| e.to_string())?;
     let text = String::from_utf8_lossy(&output.stdout);
     if !output.status.success() || !text.contains("xmpmeta") {
-        return Err(format!("XMP konnte nicht gelesen werden: {}", String::from_utf8_lossy(&output.stderr).trim()));
+        return Err(crate::trf!("XMP konnte nicht gelesen werden: {}", "Could not read XMP: {}", String::from_utf8_lossy(&output.stderr).trim()));
     }
     Ok(output.stdout)
 }

@@ -28,7 +28,7 @@ pub struct CrawlResult {
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("Scan abgebrochen")]
+#[error("{}", crate::i18n::tr("Scan abgebrochen", "Scan cancelled"))]
 pub struct Cancelled;
 
 const IGNORED_DIRS: &[&str] = &["$RECYCLE.BIN", "System Volume Information", "@eaDir", "#recycle", "#snapshot"];
@@ -119,7 +119,7 @@ pub fn crawl(root: &Path, cancel: &AtomicBool, mut progress: impl FnMut(usize)) 
             continue;
         }
         let Some(rel_path) = to_rel_path(root, entry.path()) else {
-            result.errors.push((entry.path().display().to_string(), "Dateiname ist kein gültiges UTF-8".into()));
+            result.errors.push((entry.path().display().to_string(), crate::i18n::tr("Dateiname ist kein gültiges UTF-8", "File name is not valid UTF-8").into()));
             continue;
         };
         match entry.metadata() {

@@ -109,7 +109,7 @@ fn tool_info(
             version: None,
             path: None,
             source: None,
-            error: Some("nicht gefunden".into()),
+            error: Some(crate::i18n::tr("nicht gefunden", "not found").into()),
             gpl: None,
         };
     };
@@ -155,7 +155,7 @@ pub fn add_roots(state: State<'_, AppState>, paths: Vec<String>) -> CmdResult<Ve
 #[tauri::command]
 pub fn remove_root(state: State<'_, AppState>, id: i64) -> CmdResult<()> {
     if state.scan.lock().map_err(err)?.is_some() {
-        return Err("Während eines Scans können keine Ordner entfernt werden".into());
+        return Err(crate::i18n::tr("Während eines Scans können keine Ordner entfernt werden", "Folders cannot be removed while a scan is running").into());
     }
     library::remove_root(&*db(&state)?, id).map_err(err)
 }
@@ -291,7 +291,7 @@ pub fn previews_prepare(state: State<'_, AppState>, hashes: Vec<String>) -> CmdR
 #[tauri::command]
 pub fn open_in_default_app(app: AppHandle, state: State<'_, AppState>, asset_id: i64) -> CmdResult<()> {
     use tauri_plugin_opener::OpenerExt;
-    let path = asset_path(&*db(&state)?, asset_id, false).ok_or("Datei nicht gefunden")?;
+    let path = asset_path(&*db(&state)?, asset_id, false).ok_or(crate::i18n::tr("Datei nicht gefunden", "File not found"))?;
     app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(err)
 }
 
@@ -404,7 +404,7 @@ fn store_plan(state: &State<'_, AppState>, kind: RunKind, title: &str, target: O
 #[tauri::command]
 pub fn plan_reorganize(state: State<'_, AppState>, params: ReorganizeParams) -> CmdResult<i64> {
     let planned = plan::plan_reorganize(&*db(&state)?, &params);
-    let title = if params.mode == plan::Mode::Copy { "Umsortieren (Kopieren)" } else { "Umsortieren" };
+    let title = if params.mode == plan::Mode::Copy { crate::i18n::tr("Umsortieren (Kopieren)", "Reorganize (copy)") } else { crate::i18n::tr("Umsortieren", "Reorganize") };
     store_plan(&state, RunKind::Reorganize, title, Some(params.target_root_id), &params, planned)
 }
 
@@ -412,10 +412,10 @@ pub fn plan_reorganize(state: State<'_, AppState>, params: ReorganizeParams) -> 
 pub fn plan_rejects(state: State<'_, AppState>, to_trash: bool, approved_groups: Vec<i64>) -> CmdResult<i64> {
     if to_trash {
         let planned = plan::plan_rejects_to_trash(&*db(&state)?, &approved_groups);
-        store_plan(&state, RunKind::RejectsToTrash, "Ausschuss in den Papierkorb", None, &approved_groups, planned)
+        store_plan(&state, RunKind::RejectsToTrash, crate::i18n::tr("Ausschuss in den Papierkorb", "Move rejects to Trash"), None, &approved_groups, planned)
     } else {
         let planned = plan::plan_rejects_to_folder(&*db(&state)?);
-        store_plan(&state, RunKind::RejectsToFolder, "Ausschuss nach _Aussortiert", None, &(), planned)
+        store_plan(&state, RunKind::RejectsToFolder, crate::i18n::tr("Ausschuss nach _Aussortiert", "Move rejects to _Rejected"), None, &(), planned)
     }
 }
 
@@ -423,20 +423,40 @@ pub fn plan_rejects(state: State<'_, AppState>, to_trash: bool, approved_groups:
 pub fn plan_dupes(state: State<'_, AppState>, hashes: Vec<String>, to_trash: bool) -> CmdResult<i64> {
     let planned = plan::plan_dupes(&*db(&state)?, &hashes, to_trash);
     let (kind, title) =
-        if to_trash { (RunKind::DupesToTrash, "Doppelte Dateien in den Papierkorb") } else { (RunKind::DupesToFolder, "Doppelte Dateien nach _Duplikate") };
+        if to_trash { (RunKind::DupesToTrash, crate::i18n::tr("Doppelte Dateien in den Papierkorb", "Move duplicate files to Trash")) } else { (RunKind::DupesToFolder, crate::i18n::tr("Doppelte Dateien nach _Duplikate", "Move duplicate files to _Duplicates")) };
     store_plan(&state, kind, title, None, &hashes, planned)
 }
 
 #[tauri::command]
 pub fn plan_empty_dirs(state: State<'_, AppState>) -> CmdResult<i64> {
     let planned = plan::plan_empty_dirs(&*db(&state)?);
-    store_plan(&state, RunKind::EmptyDirsToTrash, "Leere Ordner in den Papierkorb", None, &(), planned)
+    store_plan(&state, RunKind::EmptyDirsToTrash, crate::i18n::tr("Leere Ordner in den Papierkorb", "Move empty folders to Trash"), None, &(), planned)
 }
 
 #[tauri::command]
 pub fn plan_xmp_export(state: State<'_, AppState>) -> CmdResult<i64> {
     let planned = plan::plan_xmp_export(&*db(&state)?);
-    store_plan(&state, RunKind::XmpExport, "Bewertungen als XMP exportieren", None, &(), planned)
+    store_plan(&state, RunKind::XmpExport, crate::i18n::tr("Bewertungen als XMP exportieren", "Export ratings as XMP"), None, &(), planned)
+}
+
+/// Gespeicherte Spracheinstellung: "auto" (Systemsprache), "de" oder "en".
+#[tauri::command]
+pub fn ui_language(state: State<'_, AppState>) -> CmdResult<String> {
+    Ok(db(&state)?.query_row("SELECT value FROM setting WHERE key = 'ui.language'", [], |r| r.get(0)).unwrap_or_else(|_| "auto".to_string()))
+}
+
+/// Speichert die Einstellung und setzt die Sprache der Backend-Meldungen.
+/// `effective` ist die tatsächlich verwendete Sprache (bei "auto" die des Systems).
+#[tauri::command]
+pub fn set_ui_language(state: State<'_, AppState>, pref: String, effective: String) -> CmdResult<()> {
+    if !["auto", "de", "en"].contains(&pref.as_str()) {
+        return Err("invalid language".into());
+    }
+    db(&state)?
+        .execute("INSERT INTO setting (key, value) VALUES ('ui.language', ?1) ON CONFLICT (key) DO UPDATE SET value = excluded.value", [&pref])
+        .map_err(err)?;
+    crate::i18n::set_english(effective == "en");
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -479,7 +499,7 @@ struct PhotosProgress {
 #[tauri::command]
 pub async fn plan_photos_import(app: AppHandle, params: plan::import::ImportParams) -> CmdResult<i64> {
     tauri::async_runtime::spawn_blocking(move || {
-        let photos = crate::photos::system().ok_or("Die Fotos-Mediathek gibt es nur unter macOS")?;
+        let photos = crate::photos::system().ok_or(crate::i18n::tr("Die Fotos-Mediathek gibt es nur unter macOS", "The Photos library is only available on macOS"))?;
         // Fortschritt höchstens ~10-mal pro Sekunde, Anfang und Ende immer.
         let last = Mutex::new(Instant::now() - Duration::from_secs(1));
         let progress = |done: usize, total: usize| {
@@ -493,7 +513,7 @@ pub async fn plan_photos_import(app: AppHandle, params: plan::import::ImportPara
         let assets = photos.assets(&crate::photos::ListOptions { include_hidden: params.include_hidden }, &progress)?;
         let state = app.state::<AppState>();
         let planned = plan::import::plan_photos_import(&*db(&state)?, &assets, &params);
-        store_plan(&state, RunKind::PhotosImport, "Import aus der Fotos-Mediathek", None, &params, planned)
+        store_plan(&state, RunKind::PhotosImport, crate::i18n::tr("Import aus der Fotos-Mediathek", "Import from Photos library"), None, &params, planned)
     })
     .await
     .map_err(err)?
@@ -518,7 +538,7 @@ pub fn set_xmp_export_enabled(state: State<'_, AppState>, enabled: bool) -> CmdR
 #[tauri::command]
 pub fn set_root_locked(state: State<'_, AppState>, id: i64, locked: bool) -> CmdResult<()> {
     if !locked && state.run.lock().map_err(err)?.is_some() {
-        return Err("Während ein Lauf aktiv ist, kann keine Sperre aufgehoben werden".into());
+        return Err(crate::i18n::tr("Während ein Lauf aktiv ist, kann keine Sperre aufgehoben werden", "Folders cannot be unlocked while a run is active").into());
     }
     library::set_locked(&*db(&state)?, id, locked).map_err(err)
 }
@@ -547,7 +567,7 @@ pub fn cache_clear(state: State<'_, AppState>, which: String) -> CmdResult<()> {
             db(&state)?.execute("DELETE FROM thumb", []).map_err(err)?;
             state.data_dir.clear_dir("thumbs").map_err(err)
         }
-        _ => Err("Unbekannter Cache".into()),
+        _ => Err(crate::i18n::tr("Unbekannter Cache", "Unknown cache").into()),
     }
 }
 
@@ -607,7 +627,7 @@ pub fn run_details(state: State<'_, AppState>, run_id: i64) -> CmdResult<RunDeta
             [run_id],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)),
         )
-        .map_err(|_| "Lauf nicht gefunden".to_string())?;
+        .map_err(|_| crate::i18n::tr("Lauf nicht gefunden", "Run not found").to_string())?;
     let mut stmt = db
         .prepare("SELECT seq, op, src, dst, size, status, error, keep_path FROM operation WHERE run_id = ?1 ORDER BY seq")
         .map_err(err)?;
@@ -712,10 +732,10 @@ fn spawn_run(app: AppHandle, state: &State<'_, AppState>, run_id: i64, action: &
     let control = {
         let mut slot = state.run.lock().map_err(err)?;
         if slot.is_some() {
-            return Err("Es läuft bereits ein anderer Lauf".into());
+            return Err(crate::i18n::tr("Es läuft bereits ein anderer Lauf", "Another run is already in progress").into());
         }
         if state.scan.lock().map_err(err)?.is_some() {
-            return Err("Bitte warte, bis der Scan abgeschlossen ist".into());
+            return Err(crate::i18n::tr("Bitte warte, bis der Scan abgeschlossen ist", "Please wait until the scan has finished").into());
         }
         let control = RunControl { run_id, cancel: Arc::new(AtomicBool::new(false)), pause: Arc::new(AtomicBool::new(false)) };
         *slot = Some(control.clone());
@@ -767,7 +787,7 @@ pub fn run_dry(app: AppHandle, state: State<'_, AppState>, run_id: i64) -> CmdRe
 #[tauri::command]
 pub fn run_execute(app: AppHandle, state: State<'_, AppState>, run_id: i64, confirmed_files: usize) -> CmdResult<()> {
     if dry_run_mode(&*db(&state)?) {
-        return Err("Der Dry-Run-Modus ist aktiv. Schalte ihn zum Ausführen in den Einstellungen aus.".into());
+        return Err(crate::i18n::tr("Der Dry-Run-Modus ist aktiv. Schalte ihn zum Ausführen in den Einstellungen aus.", "Dry-run mode is on. Turn it off in Settings to run plans.").into());
     }
     spawn_run(app, &state, run_id, "execute", confirmed_files)
 }
@@ -817,7 +837,7 @@ pub fn run_state(state: State<'_, AppState>) -> CmdResult<RunState> {
 pub fn run_open_log(app: AppHandle, state: State<'_, AppState>, run_id: i64) -> CmdResult<()> {
     use tauri_plugin_opener::OpenerExt;
     let path: Option<String> = db(&state)?.query_row("SELECT log_path FROM run WHERE id = ?1", [run_id], |r| r.get(0)).map_err(err)?;
-    let path = path.ok_or("Für diesen Lauf gibt es noch kein Protokoll")?;
+    let path = path.ok_or(crate::i18n::tr("Für diesen Lauf gibt es noch kein Protokoll", "There is no log for this run yet"))?;
     app.opener().open_path(path, None::<&str>).map_err(err)
 }
 
@@ -862,7 +882,7 @@ pub fn dupes_analyze(state: State<'_, AppState>) -> CmdResult<crate::dupes::Anal
 /// Merkt sich nur die Auswahl. Ausgeführt wird erst über einen Plan (Phase 6).
 #[tauri::command]
 pub fn set_dupe_choice(state: State<'_, AppState>, hash: String, keep_asset_id: Option<i64>) -> CmdResult<()> {
-    crate::dupes::set_choice(&*db(&state)?, &hash, keep_asset_id).map_err(|_| "Ungültige Auswahl".to_string())
+    crate::dupes::set_choice(&*db(&state)?, &hash, keep_asset_id).map_err(|_| crate::i18n::tr("Ungültige Auswahl", "Invalid selection").to_string())
 }
 
 #[tauri::command]
@@ -894,10 +914,10 @@ pub fn start_scan(app: AppHandle, state: State<'_, AppState>, root_ids: Option<V
     let cancel = {
         let mut slot = state.scan.lock().map_err(err)?;
         if slot.is_some() {
-            return Err("Es läuft bereits ein Scan".into());
+            return Err(crate::i18n::tr("Es läuft bereits ein Scan", "A scan is already running").into());
         }
         if state.run.lock().map_err(err)?.is_some() {
-            return Err("Während ein Lauf Dateien verändert, ist kein Scan möglich".into());
+            return Err(crate::i18n::tr("Während ein Lauf Dateien verändert, ist kein Scan möglich", "Scanning is not possible while a run is changing files").into());
         }
         let cancel = Arc::new(AtomicBool::new(false));
         *slot = Some(cancel.clone());

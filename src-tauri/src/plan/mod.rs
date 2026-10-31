@@ -24,13 +24,14 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use unicode_normalization::UnicodeNormalization;
 
+use crate::i18n::dirs;
 use crate::scan::crawl::from_rel_path;
 
 #[derive(Debug, thiserror::Error)]
 pub enum PlanError {
     #[error("{0}")]
     Invalid(String),
-    #[error("Datenbankfehler: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Datenbankfehler", "Database error"), .0)]
     Db(#[from] rusqlite::Error),
 }
 
@@ -246,7 +247,7 @@ fn load_groups(conn: &Connection) -> rusqlite::Result<Vec<Group>> {
 
 fn root_info(conn: &Connection, id: i64) -> Result<(PathBuf, bool)> {
     conn.query_row("SELECT path, locked FROM library_root WHERE id = ?1", [id], |r| Ok((PathBuf::from(r.get::<_, String>(0)?), r.get(1)?)))
-        .map_err(|_| PlanError::Invalid("Zielordner ist nicht Teil der Bibliothek.".into()))
+        .map_err(|_| PlanError::Invalid(crate::i18n::tr("Zielordner ist nicht Teil der Bibliothek.", "The target folder is not part of the library.").into()))
 }
 
 // ---------------------------------------------------------------------------
@@ -438,14 +439,14 @@ impl Builder {
 pub fn plan_reorganize(conn: &Connection, p: &ReorganizeParams) -> Result<(Vec<PlannedOp>, Summary)> {
     template::validate(&p.template).map_err(PlanError::Invalid)?;
     if let Some(v) = p.video_template.as_deref().filter(|v| !v.trim().is_empty()) {
-        template::validate(v).map_err(|e| PlanError::Invalid(format!("Video-Vorlage: {e}")))?;
+        template::validate(v).map_err(|e| PlanError::Invalid(crate::trf!("Video-Vorlage: {}", "Video template: {}", e)))?;
     }
     let (dest_root, locked) = root_info(conn, p.target_root_id)?;
     if locked {
-        return Err(PlanError::Invalid("Der Zielordner ist gesperrt.".into()));
+        return Err(PlanError::Invalid(crate::i18n::tr("Der Zielordner ist gesperrt.", "The target folder is locked.").into()));
     }
     if !dest_root.is_dir() {
-        return Err(PlanError::Invalid("Der Zielordner ist nicht erreichbar.".into()));
+        return Err(PlanError::Invalid(crate::i18n::tr("Der Zielordner ist nicht erreichbar.", "The target folder is not reachable.").into()));
     }
     let contexts = crate::events::group_contexts(conn)?;
     let places = if p.template.contains("{Ort}") || p.video_template.as_deref().is_some_and(|v| v.contains("{Ort}")) {
@@ -500,8 +501,8 @@ pub fn plan_reorganize(conn: &Connection, p: &ReorganizeParams) -> Result<(Vec<P
                 (dirs.iter().fold(dest_root.clone(), |acc, d| acc.join(d)), names)
             }
             // Ohne Event: {Jahr}/_Unsortiert, Dateinamen unverändert.
-            (_, Some(t)) => (dest_root.join(t.year().to_string()).join("_Unsortiert"), g.members.iter().map(|m| template::sanitize_file_name(m.name())).collect()),
-            (_, None) => (dest_root.join("_Ohne Datum"), g.members.iter().map(|m| template::sanitize_file_name(m.name())).collect()),
+            (_, Some(t)) => (dest_root.join(t.year().to_string()).join(dirs::unsorted()), g.members.iter().map(|m| template::sanitize_file_name(m.name())).collect()),
+            (_, None) => (dest_root.join(dirs::no_date()), g.members.iter().map(|m| template::sanitize_file_name(m.name())).collect()),
         };
         b.place(Target { group: g, dest_root: &dest_root, dest_dir, names }, op);
     }
@@ -514,11 +515,12 @@ pub fn plan_rejects_to_folder(conn: &Connection) -> Result<(Vec<PlannedOp>, Summ
     let rejected = rejected_groups(conn)?;
     let mut b = Builder::default();
     for g in load_groups(conn)?.iter().filter(|g| rejected.contains(&g.id)) {
-        if g.dir().split('/').next() == Some("_Aussortiert") {
+        // Liegt schon in einem Ausschuss-Ordner (egal in welcher Sprache angelegt).
+        if g.dir().split('/').next().is_some_and(|first| dirs::REJECTS_ALL.contains(&first)) {
             b.summary.in_place += 1;
             continue;
         }
-        let dest_dir = from_rel_path(&g.root.join("_Aussortiert"), g.dir());
+        let dest_dir = from_rel_path(&g.root.join(dirs::rejects()), g.dir());
         let names = g.members.iter().map(|m| m.name().to_string()).collect();
         let root = g.root.clone();
         b.place(Target { group: g, dest_root: &root, dest_dir, names }, Op::Move);
@@ -537,7 +539,7 @@ pub fn plan_rejects_to_trash(conn: &Connection, approved_groups: &[i64]) -> Resu
     let rejected = rejected_groups(conn)?;
     let approved: HashSet<i64> = approved_groups.iter().copied().filter(|g| rejected.contains(g)).collect();
     if approved.is_empty() {
-        return Err(PlanError::Invalid("Keine freigegebenen Ausschuss-Aufnahmen.".into()));
+        return Err(PlanError::Invalid(crate::i18n::tr("Keine freigegebenen Ausschuss-Aufnahmen.", "No approved rejected photos.").into()));
     }
     let mut b = Builder::default();
     for g in load_groups(conn)?.iter().filter(|g| approved.contains(&g.id)) {
@@ -582,7 +584,7 @@ pub fn plan_dupes(conn: &Connection, approved_hashes: &[String], to_trash: bool)
         if to_trash {
             b.trash(g, Some(&keep_of));
         } else {
-            let dest_dir = from_rel_path(&g.root.join("_Duplikate"), g.dir());
+            let dest_dir = from_rel_path(&g.root.join(dirs::duplicates()), g.dir());
             let names = g.members.iter().map(|m| m.name().to_string()).collect();
             let root = g.root.clone();
             b.place(Target { group: g, dest_root: &root, dest_dir, names }, Op::Move);
@@ -599,7 +601,7 @@ pub fn plan_xmp_export(conn: &Connection) -> Result<(Vec<PlannedOp>, Summary)> {
         .query_row("SELECT value = '1' FROM setting WHERE key = 'xmp.export'", [], |r| r.get(0))
         .unwrap_or(false);
     if !enabled {
-        return Err(PlanError::Invalid("Der XMP-Export ist ausgeschaltet (Einstellungen).".into()));
+        return Err(PlanError::Invalid(crate::i18n::tr("Der XMP-Export ist ausgeschaltet (Einstellungen).", "XMP export is turned off (Settings).").into()));
     }
     let ratings: HashMap<i64, i64> = {
         let mut stmt = conn.prepare("SELECT group_id, CASE WHEN flag = 'reject' THEN -1 ELSE stars END FROM rating")?;
@@ -649,7 +651,7 @@ pub fn plan_xmp_export(conn: &Connection) -> Result<(Vec<PlannedOp>, Summary)> {
         });
     }
     if b.ops.is_empty() {
-        return Err(PlanError::Invalid("Keine bewerteten RAW-Aufnahmen gefunden.".into()));
+        return Err(PlanError::Invalid(crate::i18n::tr("Keine bewerteten RAW-Aufnahmen gefunden.", "No rated RAW photos found.").into()));
     }
     Ok((b.ops, b.summary))
 }
@@ -716,7 +718,7 @@ pub fn plan_empty_dirs(conn: &Connection) -> Result<(Vec<PlannedOp>, Summary)> {
         }
     }
     if b.ops.is_empty() {
-        return Err(PlanError::Invalid("Keine leeren Ordner gefunden.".into()));
+        return Err(PlanError::Invalid(crate::i18n::tr("Keine leeren Ordner gefunden.", "No empty folders found.").into()));
     }
     Ok((b.ops, b.summary))
 }
@@ -755,7 +757,7 @@ pub struct NewRun<'a> {
 pub fn store(conn: &Connection, run: &NewRun, params: &impl Serialize, ops: &[PlannedOp], summary: &Summary) -> Result<i64> {
     let NewRun { kind, title, target_root_id, dry_run } = *run;
     if ops.iter().all(|o| o.op == Op::Mkdir) {
-        return Err(PlanError::Invalid("Der Plan enthält keine Dateioperationen. Alles liegt bereits am Ziel oder wurde übersprungen.".into()));
+        return Err(PlanError::Invalid(crate::i18n::tr("Der Plan enthält keine Dateioperationen. Alles liegt bereits am Ziel oder wurde übersprungen.", "The plan contains no file operations. Everything is already at the target or was skipped.").into()));
     }
     let tx = conn.unchecked_transaction()?;
     tx.execute(
@@ -789,7 +791,7 @@ pub fn store(conn: &Connection, run: &NewRun, params: &impl Serialize, ops: &[Pl
 pub fn discard(conn: &Connection, run_id: i64) -> Result<()> {
     let n = conn.execute("DELETE FROM run WHERE id = ?1 AND status = 'planned'", [run_id])?;
     if n == 0 {
-        return Err(PlanError::Invalid("Nur geplante, noch nicht ausgeführte Läufe können verworfen werden.".into()));
+        return Err(PlanError::Invalid(crate::i18n::tr("Nur geplante, noch nicht ausgeführte Läufe können verworfen werden.", "Only planned runs that have not been executed can be discarded.").into()));
     }
     Ok(())
 }

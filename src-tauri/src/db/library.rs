@@ -7,11 +7,11 @@ use serde::Serialize;
 
 #[derive(Debug, thiserror::Error)]
 pub enum RootError {
-    #[error("Ordner nicht gefunden: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Ordner nicht gefunden", "Folder not found"), .0)]
     NotFound(String),
-    #[error("Ordner ist bereits Teil der Bibliothek: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Ordner ist bereits Teil der Bibliothek", "Folder is already part of the library"), .0)]
     Overlaps(String),
-    #[error("Das App-Datenverzeichnis kann nicht als Quelle dienen")]
+    #[error("{}", crate::i18n::tr("Das App-Datenverzeichnis kann nicht als Quelle dienen", "The app data folder cannot be used as a source"))]
     AppDataDir,
     #[error(transparent)]
     Db(#[from] rusqlite::Error),

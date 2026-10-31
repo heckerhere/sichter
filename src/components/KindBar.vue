@@ -4,7 +4,8 @@
 import { computed } from "vue";
 import type { KindSize } from "../api";
 import { byCategory, cssVar } from "../categories";
-import { formatBytes } from "../format";
+import { formatBytes, formatInt } from "../format";
+import { t } from "../i18n";
 
 const props = withDefaults(defineProps<{ kinds: KindSize[]; height?: number }>(), { height: 8 });
 
@@ -22,7 +23,7 @@ const segments = computed(() => {
       :key="s.id"
       class="h-full min-w-[2px]"
       :style="{ flexGrow: s.share, flexBasis: 0, background: cssVar(s.id) }"
-      :title="`${s.label}: ${formatBytes(s.size)} (${Math.round(s.share * 100)} %, ${s.count} Dateien)`"
+      :title="t.storage.kindBar(s.label, formatBytes(s.size), Math.round(s.share * 100), formatInt(s.count))"
     />
   </div>
 </template>

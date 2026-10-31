@@ -89,7 +89,7 @@ impl Thumbnailer<'_> {
                 None => None,
             },
             Kind::Heic | Kind::Video => {
-                let ffmpeg = self.ffmpeg.ok_or("ffmpeg nicht verfügbar")?;
+                let ffmpeg = self.ffmpeg.ok_or(crate::i18n::tr("ffmpeg nicht verfügbar", "ffmpeg not available"))?;
                 let at = (src.kind == Kind::Video).then(|| src.duration_s.map_or(0.0, |d| d * 0.1));
                 let jpeg = crate::video::extract_frame_jpeg(ffmpeg, src.path, at, max_edge)?;
                 Some(image::load_from_memory(&jpeg).map_err(|e| e.to_string())?)
@@ -131,7 +131,7 @@ fn resize(img: DynamicImage, max_edge: u32) -> Result<DynamicImage, String> {
     let img = DynamicImage::ImageRgb8(img.to_rgb8());
     let (w, h) = (img.width(), img.height());
     if w == 0 || h == 0 {
-        return Err("Bild ohne Pixel".into());
+        return Err(crate::i18n::tr("Bild ohne Pixel", "Image without pixels").into());
     }
     if w.max(h) <= max_edge {
         return Ok(img);
@@ -144,7 +144,7 @@ fn resize(img: DynamicImage, max_edge: u32) -> Result<DynamicImage, String> {
         .map_err(|e| e.to_string())?;
     image::RgbImage::from_raw(tw, th, dst.into_vec())
         .map(DynamicImage::ImageRgb8)
-        .ok_or_else(|| "Skalierung fehlgeschlagen".into())
+        .ok_or_else(|| crate::i18n::tr("Skalierung fehlgeschlagen", "Scaling failed").into())
 }
 
 fn encode_webp(img: &DynamicImage) -> Result<Vec<u8>, String> {

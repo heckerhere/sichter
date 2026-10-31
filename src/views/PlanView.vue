@@ -8,6 +8,7 @@ import { useAppStore } from "../stores/app";
 import { useRunsStore } from "../stores/runs";
 import { useLibraryStore } from "../stores/library";
 import { formatBytes, formatInt } from "../format";
+import { t } from "../i18n";
 
 const route = useRoute();
 const router = useRouter();
@@ -62,12 +63,7 @@ const trashFiles = computed(() => details.value?.ops.filter((o) => o.op === "tra
 const s = computed(() => details.value?.summary);
 const spaceProblem = computed(() => s.value && s.value.free_bytes !== null && s.value.bytes_to_copy > s.value.free_bytes);
 
-const conflictLabel: Record<ConflictKind, string> = {
-  duplicate_at_target: "Liegt identisch schon am Ziel, bleibt an der Quelle",
-  renamed: "Name am Ziel belegt, mit (2), (3) … umbenannt",
-  not_hashed: "Noch nicht vollständig gescannt, übersprungen",
-  group_partial: "Teil einer RAW+JPEG-Gruppe, die nicht ganz doppelt ist, übersprungen",
-};
+const conflictLabel = (k: ConflictKind) => t.plan.conflict[k];
 const conflictCounts = computed(() => {
   const m = new Map<ConflictKind, number>();
   for (const c of s.value?.conflicts ?? []) m.set(c.kind, (m.get(c.kind) ?? 0) + 1);
@@ -88,8 +84,6 @@ const tree = (map: Record<string, number>) =>
     .map(([dir, n]) => ({ dir: rel(dir), n }))
     .sort((a, b) => a.dir.localeCompare(b.dir, "de", { numeric: true }));
 
-const opLabel = { mkdir: "Ordner anlegen", move: "Verschieben", copy: "Kopieren", trash: "Papierkorb", xmp: "XMP schreiben", export: "Importieren" };
-const statusLabel = { planned: "geplant", running: "läuft", done: "ausgeführt", aborted: "abgebrochen", undone: "rückgängig gemacht" };
 
 async function act(f: () => Promise<unknown>) {
   error.value = null;
@@ -114,18 +108,23 @@ async function execute() {
     return;
   }
   if (isImport.value) {
-    const ok = await ask(
-      `${formatInt(d.files)} Originale (${formatBytes(s.value?.bytes ?? 0)}) werden aus der Fotos-Mediathek nach „${importTarget.value}“ kopiert, ${formatInt(d.mkdirs)} Ordner angelegt. Die Mediathek bleibt unverändert, es wird nichts überschrieben. Bei Originalen, die nur in iCloud liegen, kann das dauern.`,
-      { title: "Import ausführen", kind: "warning", okLabel: `${formatInt(d.files)} Dateien importieren`, cancelLabel: "Abbrechen" },
-    );
+    const ok = await ask(t.plan.dialogs.importMessage(formatInt(d.files), formatBytes(s.value?.bytes ?? 0), importTarget.value, formatInt(d.mkdirs)), {
+      title: t.plan.dialogs.importTitle,
+      kind: "warning",
+      okLabel: t.plan.dialogs.importOk(formatInt(d.files)),
+      cancelLabel: t.common.cancel,
+    });
     if (ok) await act(() => api.runExecute(runId.value, d.files));
     return;
   }
-  const verb = d.kind === "reorganize" && d.title.includes("Kopieren") ? "kopiert" : "verschoben";
-  const ok = await ask(
-    `${formatInt(d.files)} Dateien (${formatBytes(s.value?.bytes ?? 0)}) werden ${verb}, ${formatInt(d.mkdirs)} Ordner angelegt. Es wird nichts überschrieben. Der Lauf kann danach rückgängig gemacht werden.`,
-    { title: "Plan ausführen", kind: "warning", okLabel: `${formatInt(d.files)} Dateien ${verb === "kopiert" ? "kopieren" : "verschieben"}`, cancelLabel: "Abbrechen" },
-  );
+  // Modus aus den gespeicherten Parametern; Titel als Rückfall für ältere Läufe.
+  const copy = d.kind === "reorganize" && (d.params.mode === "copy" || d.title.includes("Kopieren"));
+  const ok = await ask(t.plan.dialogs.executeMessage(formatInt(d.files), formatBytes(s.value?.bytes ?? 0), copy, formatInt(d.mkdirs)), {
+    title: t.plan.dialogs.executeTitle,
+    kind: "warning",
+    okLabel: t.plan.dialogs.executeOk(formatInt(d.files), copy),
+    cancelLabel: t.common.cancel,
+  });
   if (ok) await act(() => api.runExecute(runId.value, d.files));
 }
 
@@ -135,10 +134,12 @@ async function confirmTrash() {
 }
 
 async function undo() {
-  const ok = await ask(
-    "Alle Dateien dieses Laufs werden an ihren vorherigen Ort zurückgebracht, angelegte Ordner werden entfernt, wenn sie leer sind. Kopien landen im Papierkorb. Dateien im Papierkorb musst du selbst über „Zurücklegen“ wiederherstellen.",
-    { title: "Lauf rückgängig machen", kind: "warning", okLabel: "Rückgängig machen", cancelLabel: "Abbrechen" },
-  );
+  const ok = await ask(t.plan.dialogs.undoMessage, {
+    title: t.plan.dialogs.undoTitle,
+    kind: "warning",
+    okLabel: t.plan.dialogs.undoOk,
+    cancelLabel: t.common.cancel,
+  });
   if (ok) await act(() => api.runUndo(runId.value));
 }
 
@@ -149,10 +150,10 @@ async function discard() {
 }
 
 async function disableDryRun() {
-  const ok = await ask("Danach kannst du Pläne wirklich ausführen. Jede Ausführung fragt weiterhin vorher nach.", {
-    title: "Dry-Run-Modus ausschalten",
-    okLabel: "Ausschalten",
-    cancelLabel: "Abbrechen",
+  const ok = await ask(t.plan.dialogs.dryRunMessage, {
+    title: t.plan.dialogs.dryRunTitle,
+    okLabel: t.plan.dialogs.dryRunOk,
+    cancelLabel: t.common.cancel,
   });
   if (ok) await app.setDryRun(false);
 }
@@ -160,14 +161,14 @@ async function disableDryRun() {
 
 <template>
   <section class="mx-auto max-w-5xl px-8 py-8">
-    <RouterLink to="/verlauf" class="text-xs text-stone-500 hover:text-stone-800 dark:hover:text-stone-200">← Verlauf</RouterLink>
+    <RouterLink to="/verlauf" class="text-xs text-stone-500 hover:text-stone-800 dark:hover:text-stone-200">{{ t.plan.back }}</RouterLink>
     <p v-if="error" class="mt-3 rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-500/10 dark:text-red-300">{{ error }}</p>
 
     <template v-if="details && s">
       <header class="mt-2 flex flex-wrap items-center gap-3">
         <h1 class="text-xl font-semibold tracking-tight">{{ details.title }}</h1>
-        <span class="rounded bg-stone-100 px-2 py-0.5 text-xs dark:bg-stone-800">{{ statusLabel[details.status] }}</span>
-        <span class="text-xs text-stone-400">Lauf {{ details.id }} · erstellt {{ details.created_at.slice(0, 16).replace("T", " ") }} UTC</span>
+        <span class="rounded bg-stone-100 px-2 py-0.5 text-xs dark:bg-stone-800">{{ t.plan.runStatus[details.status] }}</span>
+        <span class="text-xs text-stone-400">{{ t.plan.meta(details.id, details.created_at.slice(0, 16).replace("T", " ")) }}</span>
       </header>
 
       <!-- Dry-Run-Hinweis -->
@@ -175,37 +176,37 @@ async function disableDryRun() {
         v-if="app.dryRun && (details.status === 'planned' || details.status === 'aborted')"
         class="mt-4 flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
       >
-        <span class="flex-1">Dry-Run-Modus ist aktiv: Du kannst einen Probelauf machen, es wird nichts verändert.</span>
+        <span class="flex-1">{{ t.plan.dryRunActive }}</span>
         <button class="rounded-md border border-amber-300 px-2.5 py-1 text-xs hover:bg-amber-100 dark:border-amber-800 dark:hover:bg-amber-900" @click="disableDryRun">
-          Zum Ausführen ausschalten
+          {{ t.plan.dryRunDisableButton }}
         </button>
       </div>
 
       <!-- Zähler -->
       <dl class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <div class="rounded-lg border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900">
-          <dt class="text-xs text-stone-500">Dateien</dt>
+          <dt class="text-xs text-stone-500">{{ t.plan.counters.files }}</dt>
           <dd class="text-lg font-semibold tabular-nums">{{ formatInt(details.files) }}</dd>
-          <dd class="text-[11px] text-stone-400 tabular-nums">{{ formatBytes(s.bytes) }} · {{ formatInt(s.groups) }} Einheiten</dd>
+          <dd class="text-[11px] text-stone-400 tabular-nums">{{ t.plan.counters.units(formatBytes(s.bytes), formatInt(s.groups)) }}</dd>
         </div>
         <div class="rounded-lg border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900">
-          <dt class="text-xs text-stone-500">Neue Ordner</dt>
+          <dt class="text-xs text-stone-500">{{ t.plan.counters.newFolders }}</dt>
           <dd class="text-lg font-semibold tabular-nums">{{ formatInt(details.mkdirs) }}</dd>
         </div>
         <div v-if="isImport" class="rounded-lg border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900">
-          <dt class="text-xs text-stone-500">Schon importiert / ohne Original</dt>
+          <dt class="text-xs text-stone-500">{{ t.plan.counters.alreadyImported }}</dt>
           <dd class="text-lg font-semibold tabular-nums">{{ formatInt(s.already_imported ?? 0) }} / {{ formatInt(s.not_exportable ?? 0) }}</dd>
         </div>
         <div v-else class="rounded-lg border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900">
-          <dt class="text-xs text-stone-500">Schon am Ziel / übersprungen</dt>
+          <dt class="text-xs text-stone-500">{{ t.plan.counters.inPlaceSkipped }}</dt>
           <dd class="text-lg font-semibold tabular-nums">{{ formatInt(s.in_place) }} / {{ formatInt(s.skipped_unconfirmed + s.conflicts.filter((c) => c.kind !== "renamed").length) }}</dd>
         </div>
         <div class="rounded-lg border bg-white p-3 dark:bg-stone-900" :class="spaceProblem ? 'border-red-300 dark:border-red-800' : 'border-stone-200 dark:border-stone-800'">
-          <dt class="text-xs text-stone-500">Speicherplatz am Ziel</dt>
-          <dd class="text-lg font-semibold tabular-nums">{{ s.bytes_to_copy ? formatBytes(s.bytes_to_copy) : "kein Kopieren" }}</dd>
+          <dt class="text-xs text-stone-500">{{ t.plan.counters.space }}</dt>
+          <dd class="text-lg font-semibold tabular-nums">{{ s.bytes_to_copy ? formatBytes(s.bytes_to_copy) : t.plan.counters.noCopy }}</dd>
           <dd class="text-[11px] tabular-nums" :class="spaceProblem ? 'text-red-600' : 'text-stone-400'">
-            <template v-if="s.free_bytes !== null">{{ formatBytes(s.free_bytes) }} frei{{ spaceProblem ? " – reicht nicht" : "" }}</template>
-            <template v-else>Verschieben auf demselben Laufwerk</template>
+            <template v-if="s.free_bytes !== null">{{ t.plan.counters.free(formatBytes(s.free_bytes), !!spaceProblem) }}</template>
+            <template v-else>{{ t.plan.counters.sameDrive }}</template>
           </dd>
         </div>
       </dl>
@@ -213,14 +214,14 @@ async function disableDryRun() {
       <!-- Konflikte -->
       <div v-if="s.conflicts.length" class="mt-4 rounded-lg border border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900">
         <button class="flex w-full items-center gap-2 text-left" @click="showConflicts = !showConflicts">
-          <span class="font-medium">{{ s.conflicts.length }} Hinweise</span>
-          <span class="text-xs text-stone-500">{{ conflictCounts.map(([k, n]) => `${n} × ${conflictLabel[k]}`).join(" · ") }}</span>
+          <span class="font-medium">{{ t.plan.notes(s.conflicts.length) }}</span>
+          <span class="text-xs text-stone-500">{{ conflictCounts.map(([k, n]) => `${n} × ${conflictLabel(k)}`).join(" · ") }}</span>
         </button>
         <ul v-if="showConflicts" class="mt-2 max-h-56 space-y-1 overflow-y-auto font-mono text-[11px]">
           <li v-for="(c, i) in s.conflicts" :key="i" class="grid grid-cols-[1fr_auto_1fr] gap-2">
             <span class="truncate" :title="c.path">{{ rel(c.path) }}</span>
             <span class="text-stone-400">{{ c.kind === "renamed" ? "→" : c.kind === "duplicate_at_target" ? "=" : "·" }}</span>
-            <span class="truncate text-stone-500" :title="c.target ?? ''">{{ c.target ? rel(c.target) : conflictLabel[c.kind] }}</span>
+            <span class="truncate text-stone-500" :title="c.target ?? ''">{{ c.target ? rel(c.target) : conflictLabel(c.kind) }}</span>
           </li>
         </ul>
       </div>
@@ -228,65 +229,65 @@ async function disableDryRun() {
       <!-- Vorher / Nachher -->
       <div v-if="!isTrash" class="mt-4 grid gap-4" :class="!isImport && 'md:grid-cols-2'">
         <div
-          v-for="(side, i) in isImport ? [{ label: 'Aus der Fotos-Mediathek kommen an', map: details.after }] : [{ label: 'Vorher: Dateien verlassen', map: details.before }, { label: 'Nachher: Dateien kommen an', map: details.after }]"
+          v-for="(side, i) in isImport ? [{ label: t.plan.sides.fromPhotos, map: details.after }] : [{ label: t.plan.sides.before, map: details.before }, { label: t.plan.sides.after, map: details.after }]"
           :key="i" class="rounded-lg border border-stone-200 bg-white dark:border-stone-800 dark:bg-stone-900">
           <h2 class="border-b border-stone-100 px-4 py-2 text-xs font-medium text-stone-500 dark:border-stone-800">{{ side.label }}</h2>
           <ul class="max-h-64 overflow-y-auto px-4 py-2 font-mono text-[11px]">
-            <li v-for="t in tree(side.map)" :key="t.dir" class="flex gap-2 py-0.5">
-              <span class="min-w-0 flex-1 truncate" :title="t.dir">{{ t.dir }}</span>
-              <span class="text-stone-400 tabular-nums">{{ formatInt(t.n) }}</span>
+            <li v-for="row in tree(side.map)" :key="row.dir" class="flex gap-2 py-0.5">
+              <span class="min-w-0 flex-1 truncate" :title="row.dir">{{ row.dir }}</span>
+              <span class="text-stone-400 tabular-nums">{{ formatInt(row.n) }}</span>
             </li>
           </ul>
         </div>
       </div>
-      <p class="mt-2 text-[11px] text-stone-400">Pfade relativ zu {{ prefix || "/" }}</p>
+      <p class="mt-2 text-[11px] text-stone-400">{{ t.plan.relativeTo(prefix || "/") }}</p>
 
       <!-- Fortschritt -->
       <div v-if="running" class="mt-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 dark:border-sky-900 dark:bg-sky-950">
         <div class="flex items-center gap-3">
-          <span class="font-medium">{{ runs.state?.paused ? "Pausiert" : "Läuft" }}</span>
+          <span class="font-medium">{{ runs.state?.paused ? t.plan.progress.paused : t.plan.progress.running }}</span>
           <span v-if="progress" class="tabular-nums">{{ formatInt(progress.done) }} / {{ formatInt(progress.total) }}</span>
           <span class="min-w-0 flex-1 truncate text-xs text-stone-500">{{ progress?.current }}</span>
           <button class="rounded-md border border-stone-300 px-2.5 py-1 text-xs dark:border-stone-700" @click="togglePause">
-            {{ runs.state?.paused ? "Fortsetzen" : "Pause" }}
+            {{ runs.state?.paused ? t.plan.progress.resume : t.plan.progress.pause }}
           </button>
-          <button class="rounded-md border border-stone-300 px-2.5 py-1 text-xs dark:border-stone-700" @click="cancel">Abbrechen</button>
+          <button class="rounded-md border border-stone-300 px-2.5 py-1 text-xs dark:border-stone-700" @click="cancel">{{ t.common.cancel }}</button>
         </div>
         <div class="mt-2 h-1.5 overflow-hidden rounded-full bg-sky-100 dark:bg-sky-900">
           <div class="h-full rounded-full bg-sky-500 transition-[width]" :style="{ width: `${progress && progress.total ? (progress.done / progress.total) * 100 : 2}%` }" />
         </div>
-        <p class="mt-1.5 text-[11px] text-stone-500">Abbrechen hält nach der laufenden Gruppe an. Der Lauf kann danach fortgesetzt oder rückgängig gemacht werden.</p>
+        <p class="mt-1.5 text-[11px] text-stone-500">{{ t.plan.progress.cancelHint }}</p>
       </div>
 
       <!-- Ergebnis -->
       <div v-if="report" class="mt-4 rounded-lg border px-4 py-3" :class="report.report.failed ? 'border-red-200 bg-red-50 dark:border-red-900 dark:bg-red-950' : 'border-emerald-200 bg-emerald-50 dark:border-emerald-900 dark:bg-emerald-950'">
         <p class="font-medium">
-          <template v-if="report.action === 'dry'">Probelauf: {{ report.report.done }} Dateien bereit, {{ report.report.failed }} Probleme. Es wurde nichts verändert.</template>
-          <template v-else-if="report.action === 'undo'">Rückgängig: {{ report.report.undone }} Dateien zurück, {{ report.report.failed }} Probleme.</template>
-          <template v-else>{{ report.report.cancelled ? "Abgebrochen" : "Fertig" }}: {{ report.report.done }} Dateien erledigt, {{ report.report.failed }} fehlgeschlagen<template v-if="report.report.undone">, {{ report.report.undone }} zur Wahrung zusammengehöriger Dateien zurückgesetzt</template>.</template>
+          <template v-if="report.action === 'dry'">{{ t.plan.result.dry(report.report.done, report.report.failed) }}</template>
+          <template v-else-if="report.action === 'undo'">{{ t.plan.result.undo(report.report.undone, report.report.failed) }}</template>
+          <template v-else>{{ t.plan.result.executed(report.report.cancelled, report.report.done, report.report.failed, report.report.undone) }}</template>
         </p>
         <ul v-if="report.report.messages.length" class="mt-2 max-h-40 overflow-y-auto font-mono text-[11px]">
           <li v-for="([p, m], i) in report.report.messages" :key="i">{{ rel(p) || p }}: {{ m }}</li>
         </ul>
         <div v-if="report.report.manual_restore.length" class="mt-2 text-xs">
-          {{ report.report.manual_restore.length }} Dateien liegen im Papierkorb. Öffne den Papierkorb und wähle „Zurücklegen“, um sie wiederherzustellen.
+          {{ t.plan.result.manualRestore(report.report.manual_restore.length) }}
         </div>
       </div>
 
       <!-- Aktionen -->
       <div class="mt-4 flex flex-wrap items-center gap-2">
         <template v-if="!running && (details.status === 'planned' || details.status === 'aborted')">
-          <button class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="dry">Probelauf</button>
+          <button class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="dry">{{ t.plan.actions.dry }}</button>
           <button
             :disabled="app.dryRun || !!spaceProblem"
             class="rounded-md bg-stone-900 px-3 py-1.5 text-white hover:bg-stone-700 disabled:opacity-40 dark:bg-stone-100 dark:text-stone-900"
-            :title="app.dryRun ? 'Dry-Run-Modus ist aktiv' : ''"
+            :title="app.dryRun ? t.plan.actions.dryRunActive : ''"
             @click="execute"
           >
-            {{ details.status === "aborted" ? "Fortsetzen …" : "Ausführen …" }}
+            {{ details.status === "aborted" ? t.plan.actions.resume : t.plan.actions.execute }}
           </button>
-          <button v-if="details.status === 'aborted'" class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="undo">Rückgängig machen …</button>
-          <button v-if="details.status === 'planned'" class="ml-auto text-stone-500 hover:text-red-600" @click="discard">Plan verwerfen</button>
+          <button v-if="details.status === 'aborted'" class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="undo">{{ t.plan.actions.undo }}</button>
+          <button v-if="details.status === 'planned'" class="ml-auto text-stone-500 hover:text-red-600" @click="discard">{{ t.plan.actions.discard }}</button>
         </template>
         <template v-else-if="!running && details.status === 'done'">
           <button
@@ -295,26 +296,26 @@ async function disableDryRun() {
             class="rounded-md bg-stone-900 px-3 py-1.5 text-white hover:bg-stone-700 disabled:opacity-40 dark:bg-stone-100 dark:text-stone-900"
             @click="scanImportTarget"
           >
-            Zielordner scannen
+            {{ t.plan.actions.scanTarget }}
           </button>
-          <button class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="undo">Rückgängig machen …</button>
+          <button class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="undo">{{ t.plan.actions.undo }}</button>
         </template>
-        <button v-if="details.log_path" class="text-stone-500 underline-offset-2 hover:underline" @click="openLog">Protokoll öffnen</button>
+        <button v-if="details.log_path" class="text-stone-500 underline-offset-2 hover:underline" @click="openLog">{{ t.plan.actions.openLog }}</button>
       </div>
 
       <!-- Operationen -->
       <div class="mt-6 overflow-hidden rounded-lg border border-stone-200 bg-white dark:border-stone-800 dark:bg-stone-900">
         <h2 class="border-b border-stone-100 px-4 py-2 text-xs font-medium text-stone-500 dark:border-stone-800">
-          Operationen ({{ formatInt(details.total_ops) }}<template v-if="details.total_ops > details.ops.length">, die ersten {{ details.ops.length }}; vollständig im Protokoll</template>)
+          {{ t.plan.ops.title(formatInt(details.total_ops)) }}<template v-if="details.total_ops > details.ops.length">{{ t.plan.ops.firstN(details.ops.length) }}</template>)
         </h2>
         <table class="w-full table-fixed text-left font-mono text-[11px]">
           <tbody>
             <tr v-for="o in details.ops" :key="o.seq" class="border-b border-stone-50 last:border-0 dark:border-stone-800/60" :class="o.status === 'failed' && 'bg-red-50 dark:bg-red-950/40'">
-              <td class="w-24 px-3 py-1 font-sans text-stone-500">{{ opLabel[o.op] }}</td>
+              <td class="w-24 px-3 py-1 font-sans text-stone-500">{{ t.plan.opLabel[o.op] }}</td>
               <td class="truncate px-3 py-1" :title="o.src ?? ''">{{ rel(o.src) }}</td>
               <td class="w-4 text-stone-400">{{ o.dst && o.src ? "→" : "" }}</td>
-              <td class="truncate px-3 py-1" :title="o.dst ?? o.keep_path ?? ''">{{ o.dst ? rel(o.dst) : o.keep_path ? `bleibt: ${rel(o.keep_path)}` : "" }}</td>
-              <td class="w-28 px-3 py-1 font-sans" :class="o.status === 'failed' ? 'text-red-600' : 'text-stone-400'" :title="o.error ?? ''">{{ o.error ?? o.status }}</td>
+              <td class="truncate px-3 py-1" :title="o.dst ?? o.keep_path ?? ''">{{ o.dst ? rel(o.dst) : o.keep_path ? t.plan.ops.keeps(rel(o.keep_path)) : "" }}</td>
+              <td class="w-28 px-3 py-1 font-sans" :class="o.status === 'failed' ? 'text-red-600' : 'text-stone-400'" :title="o.error ?? ''">{{ o.error ?? t.plan.opStatus[o.status] }}</td>
             </tr>
           </tbody>
         </table>
@@ -324,17 +325,16 @@ async function disableDryRun() {
     <!-- Papierkorb-Bestätigung mit Dateiliste -->
     <div v-if="showTrashConfirm && details" class="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-8">
       <div class="flex max-h-full w-full max-w-2xl flex-col rounded-xl bg-white p-5 shadow-xl dark:bg-stone-900">
-        <h2 class="text-lg font-semibold">{{ formatInt(trashFiles.length) }} Dateien in den Papierkorb legen?</h2>
+        <h2 class="text-lg font-semibold">{{ t.plan.trash.title(formatInt(trashFiles.length)) }}</h2>
         <p class="mt-1 text-stone-500">
-          Die Dateien landen im Papierkorb des Systems und lassen sich dort über „Zurücklegen“ wiederherstellen. Bei Duplikaten prüft Sichter direkt vorher, dass die
-          bleibende Kopie unverändert vorhanden ist.
+          {{ t.plan.trash.body }}
         </p>
         <ul class="mt-3 min-h-0 flex-1 overflow-y-auto rounded-md bg-stone-50 p-2 font-mono text-[11px] dark:bg-stone-950">
           <li v-for="f in trashFiles" :key="f" class="truncate" :title="f">{{ f }}</li>
         </ul>
         <div class="mt-4 flex justify-end gap-2">
-          <button class="rounded-md border border-stone-300 px-3 py-1.5 dark:border-stone-700" @click="showTrashConfirm = false">Abbrechen</button>
-          <button class="rounded-md bg-red-600 px-3 py-1.5 text-white hover:bg-red-700" @click="confirmTrash">{{ formatInt(trashFiles.length) }} Dateien in den Papierkorb</button>
+          <button class="rounded-md border border-stone-300 px-3 py-1.5 dark:border-stone-700" @click="showTrashConfirm = false">{{ t.common.cancel }}</button>
+          <button class="rounded-md bg-red-600 px-3 py-1.5 text-white hover:bg-red-700" @click="confirmTrash">{{ t.plan.trash.confirm(formatInt(trashFiles.length)) }}</button>
         </div>
       </div>
     </div>

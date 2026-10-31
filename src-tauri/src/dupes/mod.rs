@@ -126,7 +126,7 @@ fn messiness(path: &str) -> (i32, Vec<&'static str>) {
     let words: Vec<&str> = lower.split(['/', ' ', '_', '-', '.', '(', ')']).filter(|w| !w.is_empty()).collect();
     if MESSY_WORDS.iter().any(|m| if m.contains(' ') { lower.contains(m) } else { words.contains(m) }) {
         score += 10;
-        reasons.push("Pfad enthält Wörter wie „Kopie“, „Backup“ oder „Downloads“");
+        reasons.push(crate::i18n::tr("Pfad enthält Wörter wie „Kopie“, „Backup“ oder „Downloads“", "path contains words like “copy”, “backup” or “downloads”"));
     }
     // Nummerierte Kopien: "Bild (2).jpg", "Bild-1.jpg", "Bild copy 2.jpg".
     let name = lower.rsplit('/').next().unwrap_or(&lower);
@@ -135,7 +135,7 @@ fn messiness(path: &str) -> (i32, Vec<&'static str>) {
         || stem.rsplit_once('-').is_some_and(|(_, n)| n.len() <= 2 && n.chars().all(|c| c.is_ascii_digit()));
     if numbered {
         score += 5;
-        reasons.push("Dateiname sieht nach nummerierter Kopie aus");
+        reasons.push(crate::i18n::tr("Dateiname sieht nach nummerierter Kopie aus", "file name looks like a numbered copy"));
     }
     // Datumsordner (2023, 2023-05, 2023-05-12 …) gelten als sortiert.
     // Zeichenweise: Ordnernamen können mit Umlauten beginnen.
@@ -157,9 +157,9 @@ fn suggest<T>(items: &mut [T], path: impl Fn(&T) -> String, mtime: impl Fn(&T) -
     let keep = messiness(&path(&items[0]));
     let worst = items[1..].iter().map(|i| messiness(&path(i))).max_by_key(|m| m.0);
     match worst {
-        Some((score, reasons)) if score > keep.0 && !reasons.is_empty() => format!("Andere Kopie: {}", reasons.join(", ")),
-        Some((score, _)) if score > keep.0 => "Liegt in einem nach Datum sortierten Ordner".into(),
-        _ => "Älteste Kopie".into(),
+        Some((score, reasons)) if score > keep.0 && !reasons.is_empty() => crate::trf!("Andere Kopie: {}", "Other copy: {}", reasons.join(", ")),
+        Some((score, _)) if score > keep.0 => crate::i18n::tr("Liegt in einem nach Datum sortierten Ordner", "Lies in a folder sorted by date").into(),
+        _ => crate::i18n::tr("Älteste Kopie", "Oldest copy").into(),
     }
 }
 

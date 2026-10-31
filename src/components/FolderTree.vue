@@ -3,6 +3,7 @@
 import { computed, ref, watch } from "vue";
 import type { FolderRow } from "../api";
 import { formatBytes, formatInt } from "../format";
+import { locale, t } from "../i18n";
 import KindBar from "./KindBar.vue";
 
 const props = defineProps<{ folders: FolderRow[]; rootLabel: string }>();
@@ -23,7 +24,7 @@ const children = computed(() => {
   const cmp: Record<Sort, (a: FolderRow, b: FolderRow) => number> = {
     size: (a, b) => b.total_size - a.total_size,
     count: (a, b) => b.file_count - a.file_count,
-    name: (a, b) => name(a).localeCompare(name(b), "de", { numeric: true }),
+    name: (a, b) => name(a).localeCompare(name(b), locale.value, { numeric: true }),
   };
   for (const list of map.values()) list.sort(cmp[sort.value]);
   return map;
@@ -64,36 +65,32 @@ function toggle(id: number) {
   expanded.value = next;
 }
 
-const sortButtons: { id: Sort; label: string }[] = [
-  { id: "size", label: "Größe" },
-  { id: "count", label: "Dateien" },
-  { id: "name", label: "Name" },
-];
+const sortButtons: Sort[] = ["size", "count", "name"];
 </script>
 
 <template>
   <div class="overflow-hidden rounded-lg border border-stone-200 bg-white dark:border-stone-800 dark:bg-stone-900">
     <div class="flex items-center gap-1 border-b border-stone-100 px-3 py-2 text-xs dark:border-stone-800">
-      <span class="mr-1 text-stone-500">Sortieren nach</span>
+      <span class="mr-1 text-stone-500">{{ t.storage.tree.sortBy }}</span>
       <button
         v-for="b in sortButtons"
-        :key="b.id"
+        :key="b"
         class="rounded px-2 py-0.5 text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-800"
-        :class="sort === b.id && '!bg-stone-200 !text-stone-900 dark:!bg-stone-800 dark:!text-stone-50'"
-        @click="sort = b.id"
+        :class="sort === b && '!bg-stone-200 !text-stone-900 dark:!bg-stone-800 dark:!text-stone-50'"
+        @click="sort = b"
       >
-        {{ b.label }}
+        {{ t.storage.tree.sort[b] }}
       </button>
     </div>
     <table class="w-full table-fixed text-left">
       <thead class="text-[11px] text-stone-500 dark:text-stone-400">
         <tr class="border-b border-stone-100 dark:border-stone-800">
-          <th class="px-3 py-1.5 font-medium">Ordner</th>
-          <th class="w-24 px-3 py-1.5 text-right font-medium">Gesamt</th>
-          <th class="w-24 px-3 py-1.5 text-right font-medium">Eigene</th>
-          <th class="w-20 px-3 py-1.5 text-right font-medium">Dateien</th>
-          <th class="w-28 px-3 py-1.5 font-medium">Anteil am Ordner darüber</th>
-          <th class="w-44 px-3 py-1.5 font-medium">Nach Typ</th>
+          <th class="px-3 py-1.5 font-medium">{{ t.storage.tree.folder }}</th>
+          <th class="w-24 px-3 py-1.5 text-right font-medium">{{ t.storage.tree.total }}</th>
+          <th class="w-24 px-3 py-1.5 text-right font-medium">{{ t.storage.tree.own }}</th>
+          <th class="w-20 px-3 py-1.5 text-right font-medium">{{ t.storage.tree.files }}</th>
+          <th class="w-28 px-3 py-1.5 font-medium">{{ t.storage.tree.share }}</th>
+          <th class="w-44 px-3 py-1.5 font-medium">{{ t.storage.tree.byType }}</th>
         </tr>
       </thead>
       <tbody>
@@ -108,7 +105,7 @@ const sortButtons: { id: Sort; label: string }[] = [
               <button
                 v-if="r.hasChildren"
                 class="flex size-4 items-center justify-center rounded text-stone-400 hover:bg-stone-200 hover:text-stone-700 dark:hover:bg-stone-700"
-                :aria-label="expanded.has(r.folder.id) ? 'Zuklappen' : 'Aufklappen'"
+                :aria-label="expanded.has(r.folder.id) ? t.storage.tree.collapse : t.storage.tree.expand"
                 @click.stop="toggle(r.folder.id)"
               >
                 <svg viewBox="0 0 16 16" class="size-3 transition-transform" :class="expanded.has(r.folder.id) && 'rotate-90'" fill="currentColor"><path d="M6 4l4 4-4 4z" /></svg>
@@ -125,7 +122,7 @@ const sortButtons: { id: Sort; label: string }[] = [
               <div class="h-1.5 flex-1 overflow-hidden rounded-full" style="background: var(--viz-track)">
                 <div class="h-full rounded-full bg-stone-500 dark:bg-stone-400" :style="{ width: `${Math.max(1, r.share * 100)}%` }" />
               </div>
-              <span class="w-9 text-right text-[11px] text-stone-500 tabular-nums">{{ Math.round(r.share * 100) }} %</span>
+              <span class="w-9 text-right text-[11px] text-stone-500 tabular-nums">{{ t.storage.percent(Math.round(r.share * 100)) }}</span>
             </div>
           </td>
           <td class="px-3 py-1.5"><KindBar :kinds="r.folder.kinds" /></td>

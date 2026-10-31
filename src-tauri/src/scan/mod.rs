@@ -68,11 +68,11 @@ pub struct ScanReport {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ScanError {
-    #[error("Datenbankfehler: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Datenbankfehler", "Database error"), .0)]
     Db(#[from] rusqlite::Error),
     #[error("exiftool: {0}")]
     ExifTool(#[from] crate::meta::exiftool::ExifToolError),
-    #[error("exiftool wurde nicht gefunden")]
+    #[error("{}", crate::i18n::tr("exiftool wurde nicht gefunden", "exiftool was not found"))]
     NoExifTool,
 }
 

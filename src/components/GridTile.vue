@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import { thumbUrl, type GridItem } from "../api";
 import { fileName, formatDate, formatDuration } from "../format";
+import { t } from "../i18n";
 
 const props = defineProps<{ item: GridItem; size: number }>();
 const failed = ref(false);
@@ -48,7 +49,7 @@ const uncertain = computed(() => props.item.date_source && props.item.date_sourc
     </div>
     <div class="mt-1 truncate text-[11px] text-stone-600 dark:text-stone-400" :title="item.rel_path">{{ fileName(item.rel_path) }}</div>
     <div class="truncate text-[11px] tabular-nums" :class="uncertain ? 'text-amber-700 dark:text-amber-400' : 'text-stone-400'">
-      {{ formatDate(item.taken_at) }}<span v-if="uncertain" title="Kein Aufnahmedatum in den Metadaten"> · unsicher</span>
+      {{ formatDate(item.taken_at) }}<span v-if="uncertain" :title="t.library.tile.uncertainTitle"> · {{ t.library.tile.uncertain }}</span>
     </div>
   </div>
 </template>

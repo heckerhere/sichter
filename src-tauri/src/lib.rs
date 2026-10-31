@@ -4,6 +4,7 @@ pub mod dupes;
 pub mod events;
 pub mod fsops;
 pub mod hash;
+pub mod i18n;
 pub mod journal;
 pub mod meta;
 pub mod photos;
@@ -102,6 +103,8 @@ pub fn run() {
             commands::plan_empty_dirs,
             commands::set_root_locked,
             commands::plan_xmp_export,
+            commands::ui_language,
+            commands::set_ui_language,
             commands::photos_status,
             commands::photos_request_access,
             commands::photos_open_privacy_settings,

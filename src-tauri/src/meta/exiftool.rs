@@ -14,13 +14,13 @@ use crate::tools::ToolCommand;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ExifToolError {
-    #[error("exiftool konnte nicht gestartet werden: {0}")]
+    #[error("{}: {}", crate::i18n::tr("exiftool konnte nicht gestartet werden", "exiftool could not be started"), .0)]
     Spawn(io::Error),
-    #[error("Kommunikation mit exiftool fehlgeschlagen: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Kommunikation mit exiftool fehlgeschlagen", "Communication with exiftool failed"), .0)]
     Io(#[from] io::Error),
-    #[error("exiftool wurde unerwartet beendet")]
+    #[error("{}", crate::i18n::tr("exiftool wurde unerwartet beendet", "exiftool quit unexpectedly"))]
     Exited,
-    #[error("Argument enthält einen Zeilenumbruch: {0:?}")]
+    #[error("{}: {:?}", crate::i18n::tr("Argument enthält einen Zeilenumbruch", "Argument contains a line break"), .0)]
     InvalidArgument(String),
 }
 

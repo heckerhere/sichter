@@ -5,6 +5,7 @@ import { useRouter } from "vue-router";
 import { api, type EventsOverview } from "../api";
 import { useLibraryStore } from "../stores/library";
 import { formatInt, formatRange } from "../format";
+import { t } from "../i18n";
 import CullLoupe from "../components/CullLoupe.vue";
 import RejectsTrashDialog from "../components/RejectsTrashDialog.vue";
 
@@ -60,34 +61,33 @@ async function close() {
 
 <template>
   <section class="mx-auto max-w-4xl px-8 py-8">
-    <h1 class="text-xl font-semibold tracking-tight">Sichten</h1>
+    <h1 class="text-xl font-semibold tracking-tight">{{ t.cull.title }}</h1>
     <p class="mt-2 max-w-2xl text-stone-500 dark:text-stone-400">
-      Bewerte Aufnahmen im Vollbild mit der Tastatur. Ausschuss bleibt liegen, bis du ihn in einem eigenen Schritt verschiebst. Bewertungen speichert nur Sichter,
-      die Dateien bleiben unverändert.
+      {{ t.cull.intro }}
     </p>
 
     <div v-if="totals.reject" class="mt-6 flex flex-wrap items-center gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900">
-      <span class="flex-1"><span class="font-medium">{{ totals.reject }} Aufnahmen als Ausschuss markiert.</span> Sie liegen noch an ihrem Ort.</span>
+      <span class="flex-1"><span class="font-medium">{{ t.cull.rejectsMarked(totals.reject) }}</span> {{ t.cull.rejectsStay }}</span>
       <button class="rounded-md bg-stone-900 px-3 py-1.5 text-white hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900" @click="rejectsToFolder">
-        Nach _Aussortiert verschieben …
+        {{ t.cull.moveToRejectsFolder }}
       </button>
       <button class="rounded-md border border-red-300 px-3 py-1.5 text-red-700 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950" @click="showTrash = true">
-        In den Papierkorb …
+        {{ t.cull.toTrash }}
       </button>
     </div>
     <div v-if="xmpEnabled && totals.rated" class="mt-3 flex items-center gap-3 rounded-lg border border-stone-200 bg-white px-4 py-3 dark:border-stone-800 dark:bg-stone-900">
-      <span class="flex-1">Bewertungen von RAW-Aufnahmen für Lightroom & Co. als XMP-Sidecar speichern.</span>
-      <button class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="exportXmp">Als XMP exportieren …</button>
+      <span class="flex-1">{{ t.cull.xmpHint }}</span>
+      <button class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="exportXmp">{{ t.cull.xmpExport }}</button>
     </div>
     <p v-if="error" class="mt-3 rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-500/10 dark:text-red-300">{{ error }}</p>
 
     <button
       v-if="totals.count"
       class="mt-6 flex w-full items-center gap-4 rounded-lg border border-stone-200 bg-white px-4 py-3 text-left hover:border-stone-300 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-700"
-      @click="session = { eventId: null, title: 'Alle Aufnahmen' }"
+      @click="session = { eventId: null, title: t.cull.allPhotos }"
     >
-      <span class="flex-1 font-medium">Alle Aufnahmen</span>
-      <span class="text-xs text-stone-500 tabular-nums">{{ formatInt(totals.rated) }} von {{ formatInt(totals.count) }} bewertet · {{ totals.keep }} behalten · {{ totals.reject }} Ausschuss</span>
+      <span class="flex-1 font-medium">{{ t.cull.allPhotos }}</span>
+      <span class="text-xs text-stone-500 tabular-nums">{{ t.cull.totals(formatInt(totals.rated), formatInt(totals.count), totals.keep, totals.reject) }}</span>
     </button>
 
     <ul class="mt-3 space-y-1.5">
@@ -98,21 +98,21 @@ async function close() {
         >
           <div class="min-w-0 flex-1">
             <div class="truncate font-medium">{{ label(e) }}</div>
-            <div class="text-xs text-stone-500 tabular-nums">{{ formatRange(e.date_start, e.date_end) }} · {{ formatInt(e.count) }} Aufnahmen</div>
+            <div class="text-xs text-stone-500 tabular-nums">{{ formatRange(e.date_start, e.date_end) }} · {{ t.cull.photos(formatInt(e.count)) }}</div>
           </div>
           <div class="w-48">
-            <div class="flex h-1.5 gap-[2px] overflow-hidden rounded-full" style="background: var(--viz-track)" :title="`${e.keep_count} behalten, ${e.reject_count} Ausschuss, ${e.rated_count} bewertet`">
+            <div class="flex h-1.5 gap-[2px] overflow-hidden rounded-full" style="background: var(--viz-track)" :title="t.cull.barTitle(e.keep_count, e.reject_count, e.rated_count)">
               <div class="h-full bg-emerald-500" :style="{ width: `${(e.keep_count / e.count) * 100}%` }" />
               <div class="h-full bg-red-500" :style="{ width: `${(e.reject_count / e.count) * 100}%` }" />
               <div class="h-full bg-stone-400" :style="{ width: `${((e.rated_count - e.keep_count - e.reject_count) / e.count) * 100}%` }" />
             </div>
-            <div class="mt-1 text-right text-[11px] text-stone-400 tabular-nums">{{ e.rated_count }} / {{ e.count }} bewertet</div>
+            <div class="mt-1 text-right text-[11px] text-stone-400 tabular-nums">{{ t.cull.rated(e.rated_count, e.count) }}</div>
           </div>
         </button>
       </li>
     </ul>
     <p v-if="data && !data.events.length" class="mt-6 rounded-lg border border-dashed border-stone-300 px-6 py-10 text-center text-stone-500 dark:border-stone-700">
-      Noch keine Aufnahmen. Füge in der Bibliothek einen Ordner hinzu.
+      {{ t.cull.empty }}
     </p>
 
     <RejectsTrashDialog v-if="showTrash" @close="showTrash = false" @planned="(id) => router.push(`/plan/${id}`)" />

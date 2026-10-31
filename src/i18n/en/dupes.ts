@@ -1,0 +1,37 @@
+import type { Messages } from "..";
+
+export const dupes: Messages["dupes"] = {
+  title: "Duplicates",
+  redundant: (size) => `${size} in redundant copies`,
+  intro:
+    "Nothing is deleted or moved here directly. Choose which copy to keep, select groups and create a plan. You see it in full before anything happens. A copy only goes to the Trash if the copy being kept was verified again right before.",
+  searching: "Looking for duplicates …",
+  tabs: {
+    files: "Files",
+    identical: "Identical Folders",
+    content: "Same Content, Different Names",
+    subset: "Subsets",
+  },
+  deselectAll: "Deselect All",
+  selectAll: "Select All",
+  selection: (n, size) => `${n} selected · ${size} reclaimable`,
+  keepHint: "The marked copy is kept",
+  moveToDupes: "Move Other Copies to _Duplicates …",
+  moveToTrash: "Move Other Copies to Trash …",
+  noFiles: "No duplicate files found.",
+  selectForPlan: "Select for a plan",
+  groupInfo: (size, copies, redundant) => `${size} · ${copies === 1 ? "1 copy" : `${copies} copies`} · ${redundant} reclaimable`,
+  suggestion: "Suggested",
+  yourChoice: "Your choice",
+  suggestionReason: (reason) => `Suggestion: ${reason}`,
+  showMore: (n, left) => `Show ${n} more (${left} left)`,
+  identicalHint: "Same file names and same content, including all subfolders.",
+  contentHint: "Same content, but the files have different names.",
+  subfoldersHint: "Subfolders of identical folders are not listed separately.",
+  noneFound: "None found.",
+  suggestKeep: "Suggested: keep",
+  folderInfo: (files, size, reason) => `${files === "1" ? "1 file" : `${files} files`} · ${size} · ${reason}`,
+  subsetHint: "Folders whose content is fully contained in another folder, for example after an interrupted copy.",
+  containedIn: (folder) => `fully contained in ${folder}`,
+  coverage: (n, of, p, size) => `${n} of ${of} ${of === "1" ? "file" : "files"} (${p}%) · ${size}`,
+};

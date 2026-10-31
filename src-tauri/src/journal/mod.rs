@@ -27,7 +27,7 @@ use crate::hash::{self, FileHash};
 pub enum JournalError {
     #[error("{0}")]
     Invalid(String),
-    #[error("Datenbankfehler: {0}")]
+    #[error("{}: {}", crate::i18n::tr("Datenbankfehler", "Database error"), .0)]
     Db(#[from] rusqlite::Error),
     /// Nur für Tests: simulierter Absturz nach N Dateioperationen.
     #[error("simulierter Absturz")]
@@ -125,7 +125,7 @@ fn load_ops(conn: &Connection, run_id: i64) -> rusqlite::Result<Vec<OpRow>> {
 fn run_info(conn: &Connection, run_id: i64) -> Result<(String, String)> {
     conn.query_row("SELECT kind, status FROM run WHERE id = ?1", [run_id], |r| Ok((r.get(0)?, r.get(1)?)))
         .optional()?
-        .ok_or_else(|| JournalError::Invalid("Lauf nicht gefunden.".into()))
+        .ok_or_else(|| JournalError::Invalid(crate::i18n::tr("Lauf nicht gefunden.", "Run not found.").into()))
 }
 
 /// Gesperrte Roots, bei jeder Ausführung frisch aus der Datenbank.
@@ -182,21 +182,21 @@ fn backup_path(op: &OpRow) -> PathBuf {
 /// Gibt den Hash des geschriebenen Inhalts zurück (für Undo).
 fn apply_xmp(op: &OpRow, ctx: &Ctx) -> std::result::Result<(FileHash, bool), String> {
     let id = OperationId::from_journal(op.id);
-    let path = op.dst.as_ref().ok_or("Pfad fehlt")?;
-    let rating = op.note["rating"].as_i64().ok_or("Bewertung fehlt")?;
+    let path = op.dst.as_ref().ok_or(crate::i18n::tr("Pfad fehlt", "Path missing"))?;
+    let rating = op.note["rating"].as_i64().ok_or(crate::i18n::tr("Bewertung fehlt", "Rating missing"))?;
     let planned = op.hash.as_deref().and_then(FileHash::from_hex);
     let bytes = match (&planned, exists(path)) {
         (Some(expected), true) => {
             if !matches_hash(path, expected) {
-                return Err("XMP wurde seit der Planung verändert, nichts geschrieben".into());
+                return Err(crate::i18n::tr("XMP wurde seit der Planung verändert, nichts geschrieben", "XMP was changed since planning, nothing written").into());
             }
             // Original vor dem Merge sichern (Undo stellt es Byte für Byte wieder her).
             let original = std::fs::read(path).map_err(|e| e.to_string())?;
             ctx.app.write_file(backup_path(op), &original).map_err(|e| e.to_string())?;
-            crate::meta::xmp::merge(ctx.exiftool.ok_or("exiftool nicht verfügbar")?, path, rating)?
+            crate::meta::xmp::merge(ctx.exiftool.ok_or(crate::i18n::tr("exiftool nicht verfügbar", "exiftool not available"))?, path, rating)?
         }
-        (Some(_), false) => return Err("XMP fehlt inzwischen".into()),
-        (None, true) => return Err("Inzwischen liegt dort eine XMP-Datei, nichts überschrieben".into()),
+        (Some(_), false) => return Err(crate::i18n::tr("XMP fehlt inzwischen", "XMP no longer exists").into()),
+        (None, true) => return Err(crate::i18n::tr("Inzwischen liegt dort eine XMP-Datei, nichts überschrieben", "An XMP file now exists there, nothing overwritten").into()),
         (None, false) => crate::meta::xmp::new_sidecar(rating),
     };
     fsops::write_sidecar(id, path, &bytes, planned.as_ref(), ctx.guard).map_err(|e| describe(&e))?;
@@ -207,11 +207,11 @@ fn apply_xmp(op: &OpRow, ctx: &Ctx) -> std::result::Result<(FileHash, bool), Str
 /// dann als erledigt, wenn dort nachweislich genau dieses Original liegt.
 fn apply_export(op: &OpRow, ctx: &Ctx, expected: Option<&FileHash>) -> Outcome {
     let id = OperationId::from_journal(op.id);
-    let Some(dst) = &op.dst else { return Outcome::Failed("Zielpfad fehlt".into()) };
+    let Some(dst) = &op.dst else { return Outcome::Failed(crate::i18n::tr("Zielpfad fehlt", "Target path missing").into()) };
     let Ok(note) = serde_json::from_value::<crate::plan::import::ExportNote>(op.note.clone()) else {
-        return Outcome::Failed("Unvollständige Operation".into());
+        return Outcome::Failed(crate::i18n::tr("Unvollständige Operation", "Incomplete operation").into());
     };
-    let Some(photos) = ctx.photos else { return Outcome::Failed("Die Fotos-Mediathek ist auf diesem System nicht verfügbar".into()) };
+    let Some(photos) = ctx.photos else { return Outcome::Failed(crate::i18n::tr("Die Fotos-Mediathek ist auf diesem System nicht verfügbar", "The Photos library is not available on this system").into()) };
     let write = |to: &Path| photos.export(&note.asset, note.kind, &note.name, to, note.network);
     if exists(dst) {
         if expected.is_some_and(|h| matches_hash(dst, h)) {
@@ -220,7 +220,7 @@ fn apply_export(op: &OpRow, ctx: &Ctx, expected: Option<&FileHash>) -> Outcome {
         // Absturz zwischen Export und Journal-Eintrag: erneut exportieren und vergleichen.
         return match fsops::export_matches(id, dst, ctx.guard, write) {
             Ok(Some(_)) => Outcome::AlreadyDone,
-            Ok(None) => Outcome::Failed("Ziel existiert bereits mit anderem Inhalt, nichts überschrieben".into()),
+            Ok(None) => Outcome::Failed(crate::i18n::tr("Ziel existiert bereits mit anderem Inhalt, nichts überschrieben", "Target already exists with different content, nothing overwritten").into()),
             Err(e) => Outcome::Failed(describe(&e)),
         };
     }
@@ -237,7 +237,7 @@ fn apply(op: &OpRow, ctx: &Ctx) -> Outcome {
     let expected = op.hash.as_deref().and_then(FileHash::from_hex);
     match op.op.as_str() {
         "mkdir" => {
-            let Some(dst) = &op.dst else { return Outcome::Failed("Zielpfad fehlt".into()) };
+            let Some(dst) = &op.dst else { return Outcome::Failed(crate::i18n::tr("Zielpfad fehlt", "Target path missing").into()) };
             match fsops::mkdir(id, dst, guard) {
                 Ok(true) => Outcome::Done,
                 Ok(false) => Outcome::AlreadyDone,
@@ -245,12 +245,12 @@ fn apply(op: &OpRow, ctx: &Ctx) -> Outcome {
             }
         }
         "move" | "copy" => {
-            let (Some(src), Some(dst), Some(expected)) = (&op.src, &op.dst, expected) else { return Outcome::Failed("Unvollständige Operation".into()) };
+            let (Some(src), Some(dst), Some(expected)) = (&op.src, &op.dst, expected) else { return Outcome::Failed(crate::i18n::tr("Unvollständige Operation", "Incomplete operation").into()) };
             let (src_there, dst_there) = (exists(src), exists(dst));
             if dst_there {
                 // Schon erledigt? Nur wenn das Ziel genau den erwarteten Inhalt hat.
                 if !matches_hash(dst, &expected) {
-                    return Outcome::Failed("Ziel existiert bereits mit anderem Inhalt, nichts verändert".into());
+                    return Outcome::Failed(crate::i18n::tr("Ziel existiert bereits mit anderem Inhalt, nichts verändert", "Target already exists with different content, nothing changed").into());
                 }
                 if op.op == "copy" || !src_there {
                     return Outcome::AlreadyDone;
@@ -262,7 +262,7 @@ fn apply(op: &OpRow, ctx: &Ctx) -> Outcome {
                 };
             }
             if !src_there {
-                return Outcome::Failed("Quelle fehlt".into());
+                return Outcome::Failed(crate::i18n::tr("Quelle fehlt", "Source missing").into());
             }
             let result = if op.op == "move" {
                 fsops::move_verified(id, src, dst, &expected, guard).map(|_| ())
@@ -275,22 +275,22 @@ fn apply(op: &OpRow, ctx: &Ctx) -> Outcome {
             }
         }
         "trash" => {
-            let Some(src) = &op.src else { return Outcome::Failed("Pfad fehlt".into()) };
-            let Some(token) = trash else { return Outcome::Failed("Papierkorb nicht freigegeben".into()) };
+            let Some(src) = &op.src else { return Outcome::Failed(crate::i18n::tr("Pfad fehlt", "Path missing").into()) };
+            let Some(token) = trash else { return Outcome::Failed(crate::i18n::tr("Papierkorb nicht freigegeben", "Trash not approved").into()) };
             if !exists(src) {
                 return Outcome::AlreadyDone;
             }
             // Leerer Ordner: direkt vorher erneut prüfen, dass er noch leer ist.
             if src.is_dir() && !crate::plan::is_effectively_empty(src) {
-                return Outcome::Failed("Ordner ist nicht mehr leer, bleibt stehen".into());
+                return Outcome::Failed(crate::i18n::tr("Ordner ist nicht mehr leer, bleibt stehen", "Folder is no longer empty, left in place").into());
             }
             if let Some(expected) = &expected {
                 if !matches_hash(src, expected) {
-                    return Outcome::Failed("Datei hat sich seit dem Scan verändert, nicht in den Papierkorb gelegt".into());
+                    return Outcome::Failed(crate::i18n::tr("Datei hat sich seit dem Scan verändert, nicht in den Papierkorb gelegt", "File changed since the scan, not moved to Trash").into());
                 }
                 // Duplikat: Die bleibende Kopie muss jetzt noch existieren und identisch sein.
                 if let Some(keep) = op.keep_path.as_ref().filter(|k| !matches_hash(k, expected)) {
-                    return Outcome::Failed(format!("Bleibende Kopie fehlt oder ist verändert ({}), nicht in den Papierkorb gelegt", keep.display()));
+                    return Outcome::Failed(crate::trf!("Bleibende Kopie fehlt oder ist verändert ({}), nicht in den Papierkorb gelegt", "Copy to keep is missing or changed ({}), not moved to Trash", keep.display()));
                 }
             }
             match fsops::trash(id, src, token, guard) {
@@ -312,7 +312,7 @@ fn apply(op: &OpRow, ctx: &Ctx) -> Outcome {
                 Err(e) => Outcome::Failed(e),
             }
         }
-        other => Outcome::Failed(format!("Unbekannte Operation {other}")),
+        other => Outcome::Failed(crate::trf!("Unbekannte Operation {}", "Unknown operation {}", other)),
     }
 }
 
@@ -327,55 +327,55 @@ fn revert(op: &OpRow, ctx: &Ctx) -> std::result::Result<bool, String> {
             fsops::rmdir_if_empty(id, dst, guard).map_err(|e| describe(&e))
         }
         "move" => {
-            let (Some(src), Some(dst), Some(expected)) = (&op.src, &op.dst, expected) else { return Err("Unvollständige Operation".into()) };
+            let (Some(src), Some(dst), Some(expected)) = (&op.src, &op.dst, expected) else { return Err(crate::i18n::tr("Unvollständige Operation", "Incomplete operation").into()) };
             match (exists(src), exists(dst)) {
                 (true, false) => Ok(true), // schon zurück
                 (false, true) => fsops::move_verified(id, dst, src, &expected, guard).map(|_| true).map_err(|e| describe(&e)),
-                (true, true) => Err("Ursprünglicher Ort ist inzwischen wieder belegt".into()),
-                (false, false) => Err("Datei ist an keinem der beiden Orte".into()),
+                (true, true) => Err(crate::i18n::tr("Ursprünglicher Ort ist inzwischen wieder belegt", "The original location is now occupied").into()),
+                (false, false) => Err(crate::i18n::tr("Datei ist an keinem der beiden Orte", "File is in neither location").into()),
             }
         }
         "copy" => {
             // Die Kopie wieder entfernen, aber nur in den Papierkorb und nur,
             // wenn das Original unverändert noch da ist.
-            let (Some(src), Some(dst), Some(expected)) = (&op.src, &op.dst, expected) else { return Err("Unvollständige Operation".into()) };
+            let (Some(src), Some(dst), Some(expected)) = (&op.src, &op.dst, expected) else { return Err(crate::i18n::tr("Unvollständige Operation", "Incomplete operation").into()) };
             if !exists(dst) {
                 return Ok(true);
             }
-            let Some(token) = trash else { return Err("Papierkorb nicht freigegeben".into()) };
+            let Some(token) = trash else { return Err(crate::i18n::tr("Papierkorb nicht freigegeben", "Trash not approved").into()) };
             if !matches_hash(src, &expected) || !matches_hash(dst, &expected) {
-                return Err("Original oder Kopie verändert, Kopie bleibt liegen".into());
+                return Err(crate::i18n::tr("Original oder Kopie verändert, Kopie bleibt liegen", "Original or copy changed, copy left in place").into());
             }
             fsops::trash(id, dst, token, guard).map(|_| true).map_err(|e| describe(&e))
         }
         "export" => {
             // Die exportierte Kopie in den Papierkorb, nur wenn sie unverändert ist.
             // Das Original bleibt ohnehin in der Mediathek.
-            let Some(dst) = &op.dst else { return Err("Zielpfad fehlt".into()) };
+            let Some(dst) = &op.dst else { return Err(crate::i18n::tr("Zielpfad fehlt", "Target path missing").into()) };
             if !exists(dst) {
                 return Ok(true);
             }
-            let Some(token) = trash else { return Err("Papierkorb nicht freigegeben".into()) };
+            let Some(token) = trash else { return Err(crate::i18n::tr("Papierkorb nicht freigegeben", "Trash not approved").into()) };
             match expected {
                 Some(h) if matches_hash(dst, &h) => fsops::trash(id, dst, token, guard).map(|_| true).map_err(|e| describe(&e)),
-                _ => Err("Kopie wurde seit dem Import verändert, bleibt liegen".into()),
+                _ => Err(crate::i18n::tr("Kopie wurde seit dem Import verändert, bleibt liegen", "Copy was changed since the import, left in place").into()),
             }
         }
-        "trash" => Err("Liegt im Papierkorb: bitte dort „Zurücklegen“ wählen".into()),
+        "trash" => Err(crate::i18n::tr("Liegt im Papierkorb: bitte dort „Zurücklegen“ wählen", "In the Trash: please choose “Put Back” there").into()),
         "xmp" => {
-            let path = op.dst.as_ref().ok_or("Pfad fehlt")?;
+            let path = op.dst.as_ref().ok_or(crate::i18n::tr("Pfad fehlt", "Path missing"))?;
             let written = op.note["written"].as_str().and_then(FileHash::from_hex).ok_or("Geschriebener Stand unbekannt")?;
             if !exists(path) {
-                return Err("XMP fehlt".into());
+                return Err(crate::i18n::tr("XMP fehlt", "XMP missing").into());
             }
             if op.note["backup"].as_bool() == Some(true) {
-                let original = std::fs::read(ctx.app.join(backup_path(op)).map_err(|e| e.to_string())?).map_err(|e| format!("Sicherung fehlt: {e}"))?;
+                let original = std::fs::read(ctx.app.join(backup_path(op)).map_err(|e| e.to_string())?).map_err(|e| crate::trf!("Sicherung fehlt: {}", "Backup missing: {}", e))?;
                 fsops::write_sidecar(id, path, &original, Some(&written), guard).map(|_| true).map_err(|e| describe(&e))
             } else {
                 fsops::remove_own_sidecar(id, path, &written, guard).map(|_| true).map_err(|e| describe(&e))
             }
         }
-        other => Err(format!("Unbekannte Operation {other}")),
+        other => Err(crate::trf!("Unbekannte Operation {}", "Unknown operation {}", other)),
     }
 }
 
@@ -435,7 +435,7 @@ fn label(op: &OpRow) -> String {
 pub fn dry_run(conn: &Connection, run_id: i64, ex: &Exec) -> Result<RunReport> {
     let (_, status) = run_info(conn, run_id)?;
     if status != "planned" && status != "aborted" {
-        return Err(JournalError::Invalid("Dieser Lauf ist bereits abgeschlossen.".into()));
+        return Err(JournalError::Invalid(crate::i18n::tr("Dieser Lauf ist bereits abgeschlossen.", "This run has already finished.").into()));
     }
     let guard = guard(conn)?;
     let ops: Vec<OpRow> = load_ops(conn, run_id)?.into_iter().filter(|o| o.status == "planned").collect();
@@ -453,32 +453,32 @@ pub fn dry_run(conn: &Connection, run_id: i64, ex: &Exec) -> Result<RunReport> {
                 let size_now = std::fs::metadata(src).map(|m| m.len() as i64).ok();
                 let size_planned: Option<i64> = conn.query_row("SELECT size FROM operation WHERE id = ?1", [op.id], |r| r.get(0)).ok();
                 if size_now.is_none() {
-                    Some("Quelle fehlt".into())
+                    Some(crate::i18n::tr("Quelle fehlt", "Source missing").into())
                 } else if size_now != size_planned {
-                    Some("Quelle hat sich seit der Planung verändert".into())
+                    Some(crate::i18n::tr("Quelle hat sich seit der Planung verändert", "Source changed since planning").into())
                 } else if let Some(e) = guard.check(src).err() {
                     Some(e.to_string())
                 } else if let Some(dst) = &op.dst {
                     let parent_ok = dst.parent().is_some_and(|p| p.is_dir() || planned_dirs.iter().any(|d| d == p));
                     if exists(dst) {
-                        Some("Ziel existiert bereits".into())
+                        Some(crate::i18n::tr("Ziel existiert bereits", "Target already exists").into())
                     } else if !parent_ok {
-                        Some("Zielordner fehlt".into())
+                        Some(crate::i18n::tr("Zielordner fehlt", "Target folder missing").into())
                     } else {
                         guard.check(dst).err().map(|e| e.to_string())
                     }
                 } else {
-                    op.keep_path.as_ref().filter(|k| !exists(k)).map(|k| format!("Bleibende Kopie fehlt: {}", k.display()))
+                    op.keep_path.as_ref().filter(|k| !exists(k)).map(|k| crate::trf!("Bleibende Kopie fehlt: {}", "Copy to keep is missing: {}", k.display()))
                 }
             }
             "export" => op.dst.as_ref().and_then(|dst| {
                 let parent_ok = dst.parent().is_some_and(|p| p.is_dir() || planned_dirs.iter().any(|d| d == p));
                 if ex.photos.is_none() {
-                    Some("Die Fotos-Mediathek ist auf diesem System nicht verfügbar".into())
+                    Some(crate::i18n::tr("Die Fotos-Mediathek ist auf diesem System nicht verfügbar", "The Photos library is not available on this system").into())
                 } else if exists(dst) {
-                    Some("Ziel existiert bereits".into())
+                    Some(crate::i18n::tr("Ziel existiert bereits", "Target already exists").into())
                 } else if !parent_ok {
-                    Some("Zielordner fehlt".into())
+                    Some(crate::i18n::tr("Zielordner fehlt", "Target folder missing").into())
                 } else {
                     guard.check(dst).err().map(|e| e.to_string())
                 }
@@ -486,12 +486,12 @@ pub fn dry_run(conn: &Connection, run_id: i64, ex: &Exec) -> Result<RunReport> {
             "xmp" => {
                 let dst = op.dst.as_ref().expect("Ziel gesetzt");
                 match op.hash.as_deref().and_then(FileHash::from_hex) {
-                    Some(h) if !matches_hash(dst, &h) => Some("XMP wurde seit der Planung verändert".into()),
-                    None if exists(dst) => Some("Inzwischen liegt dort eine XMP-Datei".into()),
+                    Some(h) if !matches_hash(dst, &h) => Some(crate::i18n::tr("XMP wurde seit der Planung verändert", "XMP changed since planning").into()),
+                    None if exists(dst) => Some(crate::i18n::tr("Inzwischen liegt dort eine XMP-Datei", "An XMP file now exists there").into()),
                     _ => guard.check(dst).err().map(|e| e.to_string()),
                 }
             }
-            _ => Some("Unbekannte Operation".into()),
+            _ => Some(crate::i18n::tr("Unbekannte Operation", "Unknown operation").into()),
         };
         match problem {
             Some(msg) => {
@@ -511,12 +511,12 @@ pub fn dry_run(conn: &Connection, run_id: i64, ex: &Exec) -> Result<RunReport> {
 pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec) -> Result<RunReport> {
     let (kind, status) = run_info(conn, run_id)?;
     if status != "planned" && status != "aborted" {
-        return Err(JournalError::Invalid("Dieser Lauf ist bereits abgeschlossen.".into()));
+        return Err(JournalError::Invalid(crate::i18n::tr("Dieser Lauf ist bereits abgeschlossen.", "This run has already finished.").into()));
     }
     let all = load_ops(conn, run_id)?;
     let files = all.iter().filter(|o| o.op != "mkdir").count();
     if confirmed_files != files {
-        return Err(JournalError::Invalid(format!("Bestätigung passt nicht zum Plan ({confirmed_files} statt {files} Dateien).")));
+        return Err(JournalError::Invalid(crate::trf!("Bestätigung passt nicht zum Plan ({} statt {} Dateien).", "Confirmation does not match the plan ({} instead of {} files).", confirmed_files, files)));
     }
     let uses_trash = kind.ends_with("_to_trash");
     let token = uses_trash.then(TrashToken::from_confirmed_plan);
@@ -582,7 +582,7 @@ pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec
             report.messages.push((label(failed), msg.clone()));
             // Rest der Gruppe nicht anfassen, Erledigtes zurückschieben.
             for rest in &chunk[k + 1..] {
-                set_status(conn, rest, "failed", Some("Übersprungen, weil ein anderes Mitglied der Gruppe fehlschlug"))?;
+                set_status(conn, rest, "failed", Some(crate::i18n::tr("Übersprungen, weil ein anderes Mitglied der Gruppe fehlschlug", "Skipped because another file of the group failed")))?;
                 report.skipped += 1;
             }
             // Eigene Exporte dieser Gruppe dürfen beim Zurücksetzen in den Papierkorb
@@ -593,7 +593,7 @@ pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec
                 match revert(&reload(conn, op)?, &ctx) {
                     Ok(_) => {
                         let tx = conn.unchecked_transaction()?;
-                        set_status(&tx, op, "undone", Some("Gruppe zurückgesetzt, weil ein anderes Mitglied fehlschlug"))?;
+                        set_status(&tx, op, "undone", Some(crate::i18n::tr("Gruppe zurückgesetzt, weil ein anderes Mitglied fehlschlug", "Group rolled back because another file failed")))?;
                         if op.op == "move" {
                             reindex_move(&tx, op.asset_id, op.src.as_deref().expect("geprüft"))?;
                         }
@@ -603,7 +603,7 @@ pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec
                             report.undone += 1;
                         }
                     }
-                    Err(e) => report.messages.push((label(op), format!("Zurücksetzen fehlgeschlagen: {e}"))),
+                    Err(e) => report.messages.push((label(op), crate::trf!("Zurücksetzen fehlgeschlagen: {}", "Rollback failed: {}", e))),
                 }
             }
         }
@@ -623,7 +623,7 @@ pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec
 pub fn undo(conn: &Connection, run_id: i64, ex: &Exec) -> Result<RunReport> {
     let (_, status) = run_info(conn, run_id)?;
     if status != "done" && status != "aborted" {
-        return Err(JournalError::Invalid("Nur ausgeführte oder abgebrochene Läufe können rückgängig gemacht werden.".into()));
+        return Err(JournalError::Invalid(crate::i18n::tr("Nur ausgeführte oder abgebrochene Läufe können rückgängig gemacht werden.", "Only finished or cancelled runs can be undone.").into()));
     }
     let guard = guard(conn)?;
     let token = TrashToken::from_confirmed_plan();

@@ -4,6 +4,7 @@ import { ref, watch } from "vue";
 import { api, type RunListItem } from "../api";
 import { useRunsStore } from "../stores/runs";
 import { formatInt } from "../format";
+import { t } from "../i18n";
 
 const runs = useRunsStore();
 const list = ref<RunListItem[]>([]);
@@ -13,13 +14,6 @@ async function load() {
 }
 watch(() => [runs.state, runs.lastFinished], load, { immediate: true, deep: true });
 
-const statusLabel: Record<string, string> = {
-  planned: "Plan, noch nicht ausgeführt",
-  running: "läuft",
-  done: "ausgeführt",
-  aborted: "abgebrochen, fortsetzbar",
-  undone: "rückgängig gemacht",
-};
 const statusStyle: Record<string, string> = {
   planned: "bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300",
   running: "bg-sky-100 text-sky-800 dark:bg-sky-500/15 dark:text-sky-300",
@@ -31,10 +25,10 @@ const statusStyle: Record<string, string> = {
 
 <template>
   <section class="mx-auto max-w-4xl px-8 py-8">
-    <h1 class="text-xl font-semibold tracking-tight">Verlauf</h1>
-    <p class="mt-2 text-stone-500 dark:text-stone-400">Alle Pläne und Läufe. Ausgeführte Läufe lassen sich als Ganzes rückgängig machen, zu jedem gibt es ein Protokoll.</p>
+    <h1 class="text-xl font-semibold tracking-tight">{{ t.plan.history.title }}</h1>
+    <p class="mt-2 text-stone-500 dark:text-stone-400">{{ t.plan.history.intro }}</p>
     <div v-if="!list.length" class="mt-6 rounded-lg border border-dashed border-stone-300 px-6 py-10 text-center text-stone-500 dark:border-stone-700">
-      Noch keine Pläne. Erstelle einen unter <RouterLink to="/umsortieren" class="underline underline-offset-2">Umsortieren</RouterLink>, in den Duplikaten oder beim Sichten.
+      {{ t.plan.history.emptyBefore }}<RouterLink to="/umsortieren" class="underline underline-offset-2">{{ t.plan.history.emptyLink }}</RouterLink>{{ t.plan.history.emptyAfter }}
     </div>
     <ul class="mt-5 space-y-2">
       <li v-for="r in list" :key="r.id">
@@ -46,13 +40,13 @@ const statusStyle: Record<string, string> = {
           <div class="min-w-0 flex-1">
             <div class="font-medium">{{ r.title }}</div>
             <div class="text-xs text-stone-500 tabular-nums">
-              {{ (r.finished_at ?? r.created_at).slice(0, 16).replace("T", " ") }} UTC · {{ formatInt(r.files) }} Dateien
-              <template v-if="r.done"> · {{ formatInt(r.done) }} erledigt</template>
-              <template v-if="r.failed"> · <span class="text-red-600">{{ r.failed }} fehlgeschlagen</span></template>
-              <template v-if="r.undone"> · {{ formatInt(r.undone) }} zurück</template>
+              {{ (r.finished_at ?? r.created_at).slice(0, 16).replace("T", " ") }} UTC · {{ t.plan.history.files(formatInt(r.files)) }}
+              <template v-if="r.done"> · {{ t.plan.history.done(formatInt(r.done)) }}</template>
+              <template v-if="r.failed"> · <span class="text-red-600">{{ t.plan.history.failed(r.failed) }}</span></template>
+              <template v-if="r.undone"> · {{ t.plan.history.undone(formatInt(r.undone)) }}</template>
             </div>
           </div>
-          <span class="rounded px-2 py-0.5 text-xs" :class="statusStyle[r.status]">{{ statusLabel[r.status] }}</span>
+          <span class="rounded px-2 py-0.5 text-xs" :class="statusStyle[r.status]">{{ t.plan.history.status[r.status] }}</span>
         </RouterLink>
       </li>
     </ul>
