@@ -58,7 +58,7 @@ pub(super) fn rename_noreplace(src: &Path, dst: &Path) -> Result<(), RenameError
 #[cfg(windows)]
 pub(super) fn rename_noreplace(src: &Path, dst: &Path) -> Result<(), RenameError> {
     use std::os::windows::ffi::OsStrExt;
-    use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, ERROR_NOT_SAME_DEVICE};
+    use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, ERROR_FILE_EXISTS, ERROR_NOT_SAME_DEVICE, ERROR_NOT_SUPPORTED};
     use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
 
     // Lange Pfade (über MAX_PATH) brauchen bei direkten Win32-Aufrufen das
@@ -76,6 +76,8 @@ pub(super) fn rename_noreplace(src: &Path, dst: &Path) -> Result<(), RenameError
     Err(match err.raw_os_error().map(|c| c as u32) {
         Some(ERROR_ALREADY_EXISTS | ERROR_FILE_EXISTS) => RenameError::AlreadyExists,
         Some(ERROR_NOT_SAME_DEVICE) => RenameError::CrossDevice,
+        // Manche Netzlaufwerke: dann wie unter Unix kopieren, prüfen, Quelle entfernen.
+        Some(ERROR_NOT_SUPPORTED) => RenameError::Unsupported,
         _ => RenameError::Io(err),
     })
 }
