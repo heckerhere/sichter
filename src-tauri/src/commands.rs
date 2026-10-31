@@ -468,13 +468,29 @@ pub fn photos_open_privacy_settings() -> CmdResult<()> {
     Ok(())
 }
 
+#[derive(Clone, Serialize)]
+struct PhotosProgress {
+    done: usize,
+    total: usize,
+}
+
 /// Plant den Import aus der Fotos-Mediathek. Liest die Mediathek (kann bei
 /// großen Mediatheken etwas dauern) außerhalb der Datenbanksperre.
 #[tauri::command]
 pub async fn plan_photos_import(app: AppHandle, params: plan::import::ImportParams) -> CmdResult<i64> {
     tauri::async_runtime::spawn_blocking(move || {
         let photos = crate::photos::system().ok_or("Die Fotos-Mediathek gibt es nur unter macOS")?;
-        let assets = photos.assets(&crate::photos::ListOptions { include_hidden: params.include_hidden })?;
+        // Fortschritt höchstens ~10-mal pro Sekunde, Anfang und Ende immer.
+        let last = Mutex::new(Instant::now() - Duration::from_secs(1));
+        let progress = |done: usize, total: usize| {
+            if let Ok(mut l) = last.lock()
+                && (done == 0 || done >= total || l.elapsed() >= Duration::from_millis(100))
+            {
+                *l = Instant::now();
+                let _ = app.emit("photos-progress", PhotosProgress { done, total });
+            }
+        };
+        let assets = photos.assets(&crate::photos::ListOptions { include_hidden: params.include_hidden }, &progress)?;
         let state = app.state::<AppState>();
         let planned = plan::import::plan_photos_import(&*db(&state)?, &assets, &params);
         store_plan(&state, RunKind::PhotosImport, "Import aus der Fotos-Mediathek", None, &params, planned)

@@ -46,7 +46,8 @@ impl FakeLibrary {
 }
 
 impl PhotoLibrary for FakeLibrary {
-    fn assets(&self, _opts: &ListOptions) -> Result<Vec<Asset>, String> {
+    fn assets(&self, _opts: &ListOptions, progress: &dyn Fn(usize, usize)) -> Result<Vec<Asset>, String> {
+        progress(self.assets.len(), self.assets.len());
         Ok(self.assets.clone())
     }
 
@@ -83,7 +84,7 @@ impl Env {
     }
 
     fn plan(&self) -> Result<(i64, plan::Summary, usize), plan::PlanError> {
-        let assets = self.photos.assets(&ListOptions::default()).unwrap();
+        let assets = self.photos.assets(&ListOptions::default(), &|_, _| {}).unwrap();
         let (ops, summary) = plan::import::plan_photos_import(&self.conn, &assets, &self.params())?;
         let files = ops.iter().filter(|o| o.op != plan::Op::Mkdir).count();
         let meta = plan::NewRun { kind: RunKind::PhotosImport, title: "Import", target_root_id: None, dry_run: false };

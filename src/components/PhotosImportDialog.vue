@@ -1,9 +1,11 @@
 <script setup lang="ts">
 // Import aus der Fotos-Mediathek (macOS): Zielordner wählen, Zugriff erfragen,
 // Plan erstellen. Ausgeführt wird wie jeder Plan erst nach Vorschau und Bestätigung.
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { open } from "@tauri-apps/plugin-dialog";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { api, type PhotosAccess } from "../api";
+import { formatInt } from "../format";
 
 const emit = defineEmits<{ close: []; planned: [runId: number] }>();
 
@@ -14,7 +16,16 @@ const includeHidden = ref(false);
 const busy = ref(false);
 const error = ref<string | null>(null);
 
-onMounted(async () => (access.value = (await api.photosStatus()).access));
+// Fortschritt beim Einlesen der Mediathek.
+const progress = ref<{ done: number; total: number } | null>(null);
+let unlisten: UnlistenFn | null = null;
+onMounted(async () => {
+  unlisten = await listen<{ done: number; total: number }>("photos-progress", (e) => (progress.value = e.payload));
+  access.value = (await api.photosStatus()).access;
+});
+onUnmounted(() => unlisten?.());
+const percent = computed(() => (progress.value && progress.value.total ? Math.round((progress.value.done / progress.value.total) * 100) : 0));
+const reading = computed(() => !!progress.value && progress.value.done < progress.value.total);
 
 const blocked = computed(() => access.value === "denied" || access.value === "restricted");
 
@@ -26,6 +37,7 @@ async function pickTarget() {
 async function plan() {
   if (!target.value) return;
   error.value = null;
+  progress.value = null;
   busy.value = true;
   try {
     if (access.value === "not_determined") access.value = await api.photosRequestAccess();
@@ -78,8 +90,26 @@ async function plan() {
 
       <p v-if="error" class="mt-3 rounded-md bg-red-50 px-3 py-2 text-red-700 dark:bg-red-500/10 dark:text-red-300">{{ error }}</p>
 
+      <div v-if="busy" class="mt-4">
+        <div class="flex items-baseline gap-2 text-xs text-stone-500">
+          <span v-if="!progress">Warte auf die Fotos-Mediathek …</span>
+          <template v-else-if="reading">
+            <span>Mediathek wird gelesen</span>
+            <span class="tabular-nums">{{ formatInt(progress.done) }} / {{ formatInt(progress.total) }} Objekte</span>
+            <span class="ml-auto font-medium tabular-nums text-stone-700 dark:text-stone-300">{{ percent }} %</span>
+          </template>
+          <span v-else>{{ formatInt(progress.total) }} Objekte gelesen, Plan wird erstellt …</span>
+        </div>
+        <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-stone-100 dark:bg-stone-800">
+          <div
+            class="h-full rounded-full bg-sky-500 transition-[width] duration-300"
+            :class="!progress && 'animate-pulse'"
+            :style="{ width: `${progress ? Math.max(2, percent) : 100}%` }"
+          />
+        </div>
+      </div>
+
       <div class="mt-5 flex items-center justify-end gap-2">
-        <span v-if="busy" class="mr-auto text-xs text-stone-500">Mediathek wird gelesen …</span>
         <button class="rounded-md border border-stone-300 px-3 py-1.5 dark:border-stone-700" @click="emit('close')">Abbrechen</button>
         <button
           :disabled="!target || busy || blocked"

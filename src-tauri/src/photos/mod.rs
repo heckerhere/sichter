@@ -77,7 +77,8 @@ pub struct ListOptions {
 
 /// Lesender Zugriff auf eine Foto-Mediathek. In Tests durch eine Attrappe ersetzt.
 pub trait PhotoLibrary: Send + Sync {
-    fn assets(&self, opts: &ListOptions) -> Result<Vec<Asset>, String>;
+    /// Liest alle Objekte. `progress(gelesen, gesamt)` wird laufend aufgerufen.
+    fn assets(&self, opts: &ListOptions, progress: &dyn Fn(usize, usize)) -> Result<Vec<Asset>, String>;
     /// Schreibt eine Originaldatei in die (noch nicht existierende) Datei `to`.
     /// `allow_network`: fehlende Originale aus iCloud laden.
     fn export(&self, asset_id: &str, kind: ResourceKind, original_name: &str, to: &Path, allow_network: bool) -> Result<(), String>;

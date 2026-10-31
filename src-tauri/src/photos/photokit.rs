@@ -114,7 +114,7 @@ fn resources(asset: &PHAsset) -> Vec<Resource> {
 }
 
 impl PhotoLibrary for PhotoKit {
-    fn assets(&self, opts: &ListOptions) -> Result<Vec<Asset>, String> {
+    fn assets(&self, opts: &ListOptions, progress: &dyn Fn(usize, usize)) -> Result<Vec<Asset>, String> {
         if !access().can_read() {
             return Err("Kein Zugriff auf die Fotos-Mediathek. Bitte in den Systemeinstellungen unter Datenschutz & Sicherheit → Fotos erlauben.".into());
         }
@@ -124,7 +124,9 @@ impl PhotoLibrary for PhotoKit {
             let result = unsafe { PHAsset::fetchAssetsWithOptions(Some(&options)) };
             let count = unsafe { result.count() };
             let mut out = Vec::with_capacity(count);
+            progress(0, count);
             for i in 0..count {
+                progress(i, count);
                 autoreleasepool(|_| {
                     // SAFETY: Index liegt innerhalb von count.
                     let a = unsafe { result.objectAtIndex(i) };
@@ -141,6 +143,7 @@ impl PhotoLibrary for PhotoKit {
                     });
                 });
             }
+            progress(count, count);
             Ok(out)
         })
     }
