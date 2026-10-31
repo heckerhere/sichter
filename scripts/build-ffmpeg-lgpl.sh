@@ -9,7 +9,9 @@ PROJECT="$(pwd)"
 
 VERSION="8.1.3"
 SHA256="7138d28c96d9d3e3af4ee3d8cad72741f8ffb40da90c1112235dea3ecd3178a3"
-WORK="${TMPDIR:-/tmp}/sichter-ffmpeg-$VERSION"
+# Fester Ordner ohne Benutzernamen: ffmpeg speichert seine Build-Optionen (inkl.
+# -ffile-prefix-map mit diesem Pfad) im Binary.
+WORK="/tmp/sichter-ffmpeg-$VERSION"
 DEST="$PROJECT/src-tauri/binaries"
 mkdir -p "$WORK" "$DEST"
 cd "$WORK"
@@ -31,7 +33,7 @@ build() { # build <arch>
   [[ "$arch" == "x86_64" ]] && extra+=(--disable-x86asm) # ohne nasm-Abhängigkeit
   "$WORK/ffmpeg-$VERSION/configure" \
     --cc="clang -arch $arch" \
-    --extra-cflags="-mmacosx-version-min=12.0" --extra-ldflags="-mmacosx-version-min=12.0" \
+    --extra-cflags="-mmacosx-version-min=12.0 -ffile-prefix-map=$WORK=/ffmpeg-build" --extra-ldflags="-mmacosx-version-min=12.0" \
     --disable-gpl --disable-nonfree --disable-version3 \
     --enable-static --disable-shared \
     --disable-autodetect --enable-videotoolbox \
@@ -61,5 +63,11 @@ fi
 if otool -L "$DEST/ffmpeg-universal-apple-darwin" | grep -E "^[[:space:]]" | grep -v -E "^[[:space:]]+(/usr/lib|/System)"; then
   echo "FEHLER: fremde Bibliotheken" >&2; exit 1
 fi
+# Weder Home-Pfad noch Benutzername im Binary (Quellpfade in Fehlermeldungen).
+for tool in ffmpeg ffprobe; do
+  if LC_ALL=C grep -a -q -e "$HOME" -e "$(id -un)" "$DEST/$tool-universal-apple-darwin"; then
+    echo "FEHLER: Benutzername oder Home-Pfad in $tool (Build-Ordner $WORK löschen und neu bauen)" >&2; exit 1
+  fi
+done
 lipo -info "$DEST/ffmpeg-universal-apple-darwin"
 echo "LGPL-ffmpeg $VERSION installiert in $DEST"

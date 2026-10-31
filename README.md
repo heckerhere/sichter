@@ -125,7 +125,8 @@ Override via environment variables: `SICHTER_EXIFTOOL`, `SICHTER_FFMPEG`, `SICHT
 ```sh
 ./scripts/build-ffmpeg-lgpl.sh                       # once, takes about 5–10 minutes
 rustup target add aarch64-apple-darwin x86_64-apple-darwin
-pnpm tauri build --target universal-apple-darwin     # .app and .dmg
+# Replace local paths (e.g. ~/.cargo/registry) in the binary so your user name is not embedded:
+RUSTFLAGS="--remap-path-prefix=$HOME=~" pnpm tauri build --target universal-apple-darwin   # .app and .dmg
 ```
 
 **Signing and notarization** (requires an Apple Developer ID). Set before building:
@@ -155,6 +156,10 @@ src-tauri/src/
 ```
 
 The roadmap and design decisions are in [PLAN.md](PLAN.md) (German), the change history in [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+Sichter is released under the [MIT License](LICENSE). Bundled third-party tools keep their own licenses (see below).
 
 ## Data sources and licenses
 
