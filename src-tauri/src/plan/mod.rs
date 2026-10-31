@@ -12,6 +12,7 @@
 //! * Papierkorb nur für ausdrücklich freigegebene Gruppen; bei Duplikaten mit
 //!   Pfad der Kopie, die bleibt.
 
+pub mod import;
 pub mod space;
 pub mod template;
 
@@ -45,6 +46,8 @@ pub enum RunKind {
     DupesToTrash,
     EmptyDirsToTrash,
     XmpExport,
+    /// Originale aus der Fotos-Mediathek in einen Ordner kopieren.
+    PhotosImport,
 }
 
 impl RunKind {
@@ -57,6 +60,7 @@ impl RunKind {
             RunKind::DupesToTrash => "dupes_to_trash",
             RunKind::EmptyDirsToTrash => "empty_dirs_to_trash",
             RunKind::XmpExport => "xmp_export",
+            RunKind::PhotosImport => "photos_import",
         }
     }
 
@@ -81,6 +85,8 @@ pub enum Op {
     Trash,
     /// XMP-Sidecar mit Bewertung schreiben bzw. mergen.
     Xmp,
+    /// Original aus der Fotos-Mediathek in eine neue Datei schreiben.
+    Export,
 }
 
 impl Op {
@@ -91,6 +97,7 @@ impl Op {
             Op::Copy => "copy",
             Op::Trash => "trash",
             Op::Xmp => "xmp",
+            Op::Export => "export",
         }
     }
 }
@@ -107,6 +114,8 @@ pub struct PlannedOp {
     pub keep_path: Option<PathBuf>,
     /// Bei XMP: die zu schreibende Bewertung.
     pub rating: Option<i64>,
+    /// Zusatzdaten für das Journal (Export: welches Original aus der Mediathek).
+    pub note: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -141,6 +150,12 @@ pub struct Summary {
     /// Bytes, die auf ein anderes Volume kopiert werden müssen.
     pub bytes_to_copy: i64,
     pub free_bytes: Option<u64>,
+    /// Import aus der Mediathek: schon in einem früheren Lauf importiert.
+    #[serde(default)]
+    pub already_imported: usize,
+    /// Import aus der Mediathek: Objekte ohne exportierbares Original.
+    #[serde(default)]
+    pub not_exportable: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -299,7 +314,7 @@ impl Builder {
         for d in missing.into_iter().rev() {
             self.planned_dirs.insert(key(&d));
             self.summary.mkdirs += 1;
-            self.ops.push(PlannedOp { op: Op::Mkdir, src: None, dst: Some(d), hash: None, size: 0, asset_id: None, group_id: None, keep_path: None, rating: None });
+            self.ops.push(PlannedOp { op: Op::Mkdir, src: None, dst: Some(d), hash: None, size: 0, asset_id: None, group_id: None, keep_path: None, rating: None, note: None });
         }
     }
 
@@ -388,6 +403,7 @@ impl Builder {
                 group_id: Some(g.id),
                 keep_path: None,
                 rating: None,
+                note: None,
             });
         }
         self.summary.groups += 1;
@@ -407,6 +423,7 @@ impl Builder {
                 group_id: Some(g.id),
                 keep_path: keep.and_then(|k| k.get(&m.asset_id).cloned()),
                 rating: None,
+                note: None,
             });
         }
         self.summary.groups += 1;
@@ -628,6 +645,7 @@ pub fn plan_xmp_export(conn: &Connection) -> Result<(Vec<PlannedOp>, Summary)> {
             group_id: Some(g.id),
             keep_path: None,
             rating: Some(rating),
+            note: None,
         });
     }
     if b.ops.is_empty() {
@@ -690,6 +708,7 @@ pub fn plan_empty_dirs(conn: &Connection) -> Result<(Vec<PlannedOp>, Summary)> {
                     group_id: None,
                     keep_path: None,
                     rating: None,
+                    note: None,
                 });
                 // Unterordner gehören dazu, nicht einzeln aufführen.
                 walker.skip_current_dir();
@@ -758,7 +777,7 @@ pub fn store(conn: &Connection, run: &NewRun, params: &impl Serialize, ops: &[Pl
         )?;
         let path = |p: &Option<PathBuf>| p.as_ref().map(|p| p.to_string_lossy().into_owned());
         for (seq, o) in ops.iter().enumerate() {
-            let note = o.rating.map(|r| serde_json::json!({ "rating": r }).to_string());
+            let note = o.note.as_ref().map(|n| n.to_string()).or_else(|| o.rating.map(|r| serde_json::json!({ "rating": r }).to_string()));
             insert.execute(params![run_id, seq as i64, o.op.as_str(), path(&o.src), path(&o.dst), o.hash, o.size, o.asset_id, o.group_id, path(&o.keep_path), note])?;
         }
     }

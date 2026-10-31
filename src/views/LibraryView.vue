@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
+import { useRouter } from "vue-router";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { useLibraryStore } from "../stores/library";
 import type { GridItem } from "../api";
@@ -7,9 +8,22 @@ import { formatBytes, formatInt } from "../format";
 import VirtualGrid from "../components/VirtualGrid.vue";
 import GridTile from "../components/GridTile.vue";
 import SystemStatus from "../components/SystemStatus.vue";
+import PhotosImportDialog from "../components/PhotosImportDialog.vue";
+import { api } from "../api";
 import { PHASES, overallPercent, phaseLabel, phaseStep } from "../scanPhases";
 
 const lib = useLibraryStore();
+const router = useRouter();
+
+// Import aus der Fotos-Mediathek gibt es nur unter macOS.
+const photosSupported = ref(false);
+const showPhotosImport = ref(false);
+onMounted(async () => (photosSupported.value = (await api.photosStatus().catch(() => null))?.supported ?? false));
+
+async function onImportPlanned(runId: number) {
+  showPhotosImport.value = false;
+  await router.push(`/plan/${runId}`);
+}
 
 const addErrors = ref<string[]>([]);
 const showUnhandled = ref(false);
@@ -64,6 +78,14 @@ async function removeRoot(id: number, path: string) {
           @click="lib.startScan()"
         >
           Erneut scannen
+        </button>
+        <button
+          v-if="photosSupported"
+          :disabled="lib.scanning"
+          class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 disabled:opacity-40 dark:border-stone-700 dark:hover:bg-stone-800"
+          @click="showPhotosImport = true"
+        >
+          Aus Fotos importieren
         </button>
         <button
           :disabled="lib.scanning"
@@ -158,6 +180,10 @@ async function removeRoot(id: number, path: string) {
         <p class="mx-auto mt-1 max-w-sm text-stone-500 dark:text-stone-400">
           Sichter liest deine Ordner nur. Änderungen passieren ausschließlich über einen Plan, den du vorher prüfst und bestätigst.
         </p>
+        <p v-if="photosSupported" class="mx-auto mt-3 max-w-sm text-stone-500 dark:text-stone-400">
+          Deine Bilder liegen in Apple Fotos?
+          <button class="text-sky-700 underline-offset-2 hover:underline dark:text-sky-400" @click="showPhotosImport = true">Originale aus der Fotos-Mediathek importieren</button>
+        </p>
       </div>
       <h2 class="mt-10 mb-3 text-xs font-medium tracking-wide text-stone-500 uppercase dark:text-stone-400">Systemstatus</h2>
       <SystemStatus />
@@ -201,5 +227,6 @@ async function removeRoot(id: number, path: string) {
         </VirtualGrid>
       </div>
     </template>
+    <PhotosImportDialog v-if="showPhotosImport" @close="showPhotosImport = false" @planned="onImportPlanned" />
   </section>
 </template>

@@ -87,6 +87,8 @@ pub struct Exec<'a> {
     pub simulate_crash_after: Option<usize>,
     /// exiftool für den XMP-Export (Merge bestehender Sidecars).
     pub exiftool: Option<&'a crate::tools::ToolCommand>,
+    /// Fotos-Mediathek für Import-Läufe.
+    pub photos: Option<&'a dyn crate::photos::PhotoLibrary>,
 }
 
 /// Was eine einzelne Operation zum Ausführen braucht.
@@ -95,6 +97,7 @@ struct Ctx<'a> {
     trash: Option<&'a TrashToken>,
     app: &'a AppDataDir,
     exiftool: Option<&'a crate::tools::ToolCommand>,
+    photos: Option<&'a dyn crate::photos::PhotoLibrary>,
 }
 
 fn load_ops(conn: &Connection, run_id: i64) -> rusqlite::Result<Vec<OpRow>> {
@@ -200,6 +203,34 @@ fn apply_xmp(op: &OpRow, ctx: &Ctx) -> std::result::Result<(FileHash, bool), Str
     Ok((hash::hash_file(path).map_err(|e| e.to_string())?, planned.is_some()))
 }
 
+/// Export aus der Fotos-Mediathek. Bei belegtem Ziel gilt die Operation nur
+/// dann als erledigt, wenn dort nachweislich genau dieses Original liegt.
+fn apply_export(op: &OpRow, ctx: &Ctx, expected: Option<&FileHash>) -> Outcome {
+    let id = OperationId::from_journal(op.id);
+    let Some(dst) = &op.dst else { return Outcome::Failed("Zielpfad fehlt".into()) };
+    let Ok(note) = serde_json::from_value::<crate::plan::import::ExportNote>(op.note.clone()) else {
+        return Outcome::Failed("Unvollständige Operation".into());
+    };
+    let Some(photos) = ctx.photos else { return Outcome::Failed("Die Fotos-Mediathek ist auf diesem System nicht verfügbar".into()) };
+    let write = |to: &Path| photos.export(&note.asset, note.kind, &note.name, to, note.network);
+    if exists(dst) {
+        if expected.is_some_and(|h| matches_hash(dst, h)) {
+            return Outcome::AlreadyDone;
+        }
+        // Absturz zwischen Export und Journal-Eintrag: erneut exportieren und vergleichen.
+        return match fsops::export_matches(id, dst, ctx.guard, write) {
+            Ok(Some(_)) => Outcome::AlreadyDone,
+            Ok(None) => Outcome::Failed("Ziel existiert bereits mit anderem Inhalt, nichts überschrieben".into()),
+            Err(e) => Outcome::Failed(describe(&e)),
+        };
+    }
+    let modified = note.created.and_then(|s| u64::try_from(s).ok()).map(|s| std::time::UNIX_EPOCH + Duration::from_secs(s));
+    match fsops::export_new_file(id, dst, modified, ctx.guard, write) {
+        Ok(_) => Outcome::Done,
+        Err(e) => Outcome::Failed(describe(&e)),
+    }
+}
+
 fn apply(op: &OpRow, ctx: &Ctx) -> Outcome {
     let (guard, trash) = (ctx.guard, ctx.trash);
     let id = OperationId::from_journal(op.id);
@@ -267,6 +298,7 @@ fn apply(op: &OpRow, ctx: &Ctx) -> Outcome {
                 Err(e) => Outcome::Failed(describe(&e)),
             }
         }
+        "export" => apply_export(op, ctx, expected.as_ref()),
         "xmp" => {
             // Wiederaufnahme: Schon geschrieben, wenn der Inhalt dem Geschriebenen entspricht.
             let written = op.note["written"].as_str().and_then(FileHash::from_hex);
@@ -316,6 +348,19 @@ fn revert(op: &OpRow, ctx: &Ctx) -> std::result::Result<bool, String> {
             }
             fsops::trash(id, dst, token, guard).map(|_| true).map_err(|e| describe(&e))
         }
+        "export" => {
+            // Die exportierte Kopie in den Papierkorb, nur wenn sie unverändert ist.
+            // Das Original bleibt ohnehin in der Mediathek.
+            let Some(dst) = &op.dst else { return Err("Zielpfad fehlt".into()) };
+            if !exists(dst) {
+                return Ok(true);
+            }
+            let Some(token) = trash else { return Err("Papierkorb nicht freigegeben".into()) };
+            match expected {
+                Some(h) if matches_hash(dst, &h) => fsops::trash(id, dst, token, guard).map(|_| true).map_err(|e| describe(&e)),
+                _ => Err("Kopie wurde seit dem Import verändert, bleibt liegen".into()),
+            }
+        }
         "trash" => Err("Liegt im Papierkorb: bitte dort „Zurücklegen“ wählen".into()),
         "xmp" => {
             let path = op.dst.as_ref().ok_or("Pfad fehlt")?;
@@ -346,11 +391,20 @@ fn record_xmp(conn: &Connection, op: &OpRow, app: &AppDataDir) -> rusqlite::Resu
     Ok(())
 }
 
+/// Merkt sich nach dem Export den Hash der neuen Datei (für Undo und Wiederaufnahme).
+fn record_export(conn: &Connection, op: &OpRow) -> rusqlite::Result<()> {
+    let Some(h) = op.dst.as_deref().and_then(|p| hash::hash_file(p).ok()) else { return Ok(()) };
+    let size = std::fs::metadata(op.dst.as_deref().expect("geprüft")).map(|m| m.len() as i64).ok();
+    conn.execute("UPDATE operation SET hash = ?2, size = coalesce(?3, size) WHERE id = ?1", params![op.id, h.to_hex(), size])?;
+    Ok(())
+}
+
 /// Operation mit aktuellem Journal-Stand (z. B. nach record_xmp) neu laden.
 fn reload(conn: &Connection, op: &OpRow) -> rusqlite::Result<OpRow> {
-    let note: Option<String> = conn.query_row("SELECT note FROM operation WHERE id = ?1", [op.id], |r| r.get(0))?;
+    let (note, hash): (Option<String>, Option<String>) = conn.query_row("SELECT note, hash FROM operation WHERE id = ?1", [op.id], |r| Ok((r.get(0)?, r.get(1)?)))?;
     let mut fresh = op.clone();
     fresh.note = note.and_then(|n| serde_json::from_str(&n).ok()).unwrap_or_default();
+    fresh.hash = hash;
     Ok(fresh)
 }
 
@@ -417,6 +471,18 @@ pub fn dry_run(conn: &Connection, run_id: i64, ex: &Exec) -> Result<RunReport> {
                     op.keep_path.as_ref().filter(|k| !exists(k)).map(|k| format!("Bleibende Kopie fehlt: {}", k.display()))
                 }
             }
+            "export" => op.dst.as_ref().and_then(|dst| {
+                let parent_ok = dst.parent().is_some_and(|p| p.is_dir() || planned_dirs.iter().any(|d| d == p));
+                if ex.photos.is_none() {
+                    Some("Die Fotos-Mediathek ist auf diesem System nicht verfügbar".into())
+                } else if exists(dst) {
+                    Some("Ziel existiert bereits".into())
+                } else if !parent_ok {
+                    Some("Zielordner fehlt".into())
+                } else {
+                    guard.check(dst).err().map(|e| e.to_string())
+                }
+            }),
             "xmp" => {
                 let dst = op.dst.as_ref().expect("Ziel gesetzt");
                 match op.hash.as_deref().and_then(FileHash::from_hex) {
@@ -481,7 +547,7 @@ pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec
         let mut failure: Option<(usize, String)> = None;
         for (k, op) in chunk.iter().enumerate() {
             (ex.progress)(RunProgress { run_id, done: report.done + report.failed, total, current: Some(label(op)), paused: false });
-            let ctx = Ctx { guard: &guard, trash: token.as_ref(), app: ex.app, exiftool: ex.exiftool };
+            let ctx = Ctx { guard: &guard, trash: token.as_ref(), app: ex.app, exiftool: ex.exiftool, photos: ex.photos };
             match apply(op, &ctx) {
                 Outcome::Done | Outcome::AlreadyDone => {
                     fs_ops += 1;
@@ -493,6 +559,9 @@ pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec
                     after_success(&tx, op)?;
                     if op.op == "xmp" {
                         record_xmp(&tx, op, ex.app)?;
+                    }
+                    if op.op == "export" {
+                        record_export(&tx, op)?;
                     }
                     tx.commit()?;
                     done_in_chunk.push(op);
@@ -516,8 +585,11 @@ pub fn execute(conn: &Connection, run_id: i64, confirmed_files: usize, ex: &Exec
                 set_status(conn, rest, "failed", Some("Übersprungen, weil ein anderes Mitglied der Gruppe fehlschlug"))?;
                 report.skipped += 1;
             }
+            // Eigene Exporte dieser Gruppe dürfen beim Zurücksetzen in den Papierkorb
+            // (das Original bleibt in der Mediathek), sonst nie.
+            let rollback_token = (kind == crate::plan::RunKind::PhotosImport.as_str()).then(TrashToken::from_confirmed_plan);
             for op in done_in_chunk.iter().rev() {
-                let ctx = Ctx { guard: &guard, trash: None, app: ex.app, exiftool: ex.exiftool };
+                let ctx = Ctx { guard: &guard, trash: rollback_token.as_ref(), app: ex.app, exiftool: ex.exiftool, photos: ex.photos };
                 match revert(&reload(conn, op)?, &ctx) {
                     Ok(_) => {
                         let tx = conn.unchecked_transaction()?;
@@ -568,7 +640,7 @@ pub fn undo(conn: &Connection, run_id: i64, ex: &Exec) -> Result<RunReport> {
             report.manual_restore.push(op.src.as_ref().map(|p| p.display().to_string()).unwrap_or_default());
             continue;
         }
-        let ctx = Ctx { guard: &guard, trash: Some(&token), app: ex.app, exiftool: ex.exiftool };
+        let ctx = Ctx { guard: &guard, trash: Some(&token), app: ex.app, exiftool: ex.exiftool, photos: ex.photos };
         match revert(op, &ctx) {
             Ok(_) => {
                 let tx = conn.unchecked_transaction()?;

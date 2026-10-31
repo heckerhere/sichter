@@ -35,6 +35,13 @@ webp = { version = "0.3", default-features = false }
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# Import aus der Fotos-Mediathek über PhotoKit (nur lesend, siehe src/photos).
+objc2 = "0.6"
+block2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSDate", "NSError", "NSKeyValueCoding", "NSObject", "NSString", "NSURL", "NSValue"] }
+objc2-photos = { version = "0.3", default-features = false, features = ["std", "bitflags", "block2", "PHAsset", "PHAssetResource", "PHAssetResourceManager", "PHFetchOptions", "PHFetchResult", "PHObject", "PHPhotoLibrary", "PhotosTypes"] }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem", "Win32_Foundation"] }
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## Import aus der Fotos-Mediathek, englische README (2026-10-31)
+
+- **Import aus Apple Fotos (macOS):** Bibliothek → „Aus Fotos importieren“. Liest die Mediathek über PhotoKit (`src/photos/`, nur lesend; der direkte Zugriff auf das `.photoslibrary`-Paket ist durch macOS gesperrt und liefert nur UUID-Namen). Kopiert die Originale (Foto, Video, RAW-Alternative, Live-Photo-Video, alle Serienbilder) nach `<Ziel>/<Jahr>/<Datum>/<Originalname>`, Objekte ohne Datum nach `Ohne Datum`. Bearbeitungen bleiben in Fotos, geteilte Alben anderer werden nicht importiert, ausgeblendete Fotos nur auf Wunsch. Originale nur in iCloud werden optional heruntergeladen. Danach wird der Zielordner aufgenommen und gescannt.
+- **Neue Operation `export`** über Plan, Probelauf, Bestätigung und Journal. Alle Originale eines Objekts bilden eine Gruppe mit gemeinsamem Basisnamen (bei Kollision ` (n)` für alle). Dateien werden auf den Aufnahmezeitpunkt datiert. Nach einem Absturz zwischen Export und Journal-Eintrag wird erneut exportiert und verglichen statt überschrieben. Undo legt die Kopien in den Papierkorb (nur unverändert), die Mediathek bleibt unberührt. Ein zweiter Import plant nur, was laut Journal noch nicht importiert wurde.
+- **`fsops`:** `export_new_file` (Mediathek schreibt in eine eigene Temp-Datei, dann No-Replace-Rename), `export_matches` für die Wiederaufnahme.
+- **macOS:** `Info.plist` mit `NSPhotoLibraryUsageDescription`, `Entitlements.plist` mit `com.apple.security.personal-information.photos-library` (Hardened Runtime).
+- **Migration 0008:** `operation` erlaubt `export`.
+- **README** auf Englisch mit Screenshots (`docs/screenshots/`, fiktive Demo-Daten, Fotos von Unsplash).
+- **Tests:** Import gegen eine Attrappe der Mediathek (Planung, Ausführung, Kollision, Wiederaufnahme, Fehler und erneuter Import). Rollback/Undo mit echtem Papierkorb als `real_`-Test.
+
 ## Phase 8: Optionale Erweiterungen (2026-10-27)
 
 - **Serien (Bursts):** dHash (64 Bit) je Thumbnail, berechnet beim Scan aus dem Cache. Aufeinanderfolgende Fotos mit höchstens 2 s Abstand und höchstens 12 Bit Unterschied bilden eine Serie, Videos nie. Beim Sichten: Kennzeichnung „Serie 2/5“, Markierung im Filmstreifen, Taste **B** zeigt die Serie nebeneinander (bis 4).

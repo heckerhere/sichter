@@ -439,6 +439,50 @@ pub fn plan_xmp_export(state: State<'_, AppState>) -> CmdResult<i64> {
     store_plan(&state, RunKind::XmpExport, "Bewertungen als XMP exportieren", None, &(), planned)
 }
 
+#[derive(Serialize)]
+pub struct PhotosStatus {
+    /// Plattform hat eine Fotos-Mediathek (macOS).
+    supported: bool,
+    access: crate::photos::Access,
+}
+
+#[tauri::command]
+pub fn photos_status() -> PhotosStatus {
+    let access = crate::photos::access();
+    PhotosStatus { supported: access != crate::photos::Access::Unsupported, access }
+}
+
+/// Fragt nach Zugriff auf die Mediathek. Blockiert bis zur Antwort, daher async.
+#[tauri::command]
+pub async fn photos_request_access() -> crate::photos::Access {
+    tauri::async_runtime::spawn_blocking(crate::photos::request_access).await.unwrap_or(crate::photos::Access::Denied)
+}
+
+/// Öffnet Systemeinstellungen → Datenschutz & Sicherheit → Fotos.
+#[tauri::command]
+pub fn photos_open_privacy_settings() -> CmdResult<()> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open").arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Photos").spawn().map_err(err)?;
+    }
+    Ok(())
+}
+
+/// Plant den Import aus der Fotos-Mediathek. Liest die Mediathek (kann bei
+/// großen Mediatheken etwas dauern) außerhalb der Datenbanksperre.
+#[tauri::command]
+pub async fn plan_photos_import(app: AppHandle, params: plan::import::ImportParams) -> CmdResult<i64> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let photos = crate::photos::system().ok_or("Die Fotos-Mediathek gibt es nur unter macOS")?;
+        let assets = photos.assets(&crate::photos::ListOptions { include_hidden: params.include_hidden })?;
+        let state = app.state::<AppState>();
+        let planned = plan::import::plan_photos_import(&*db(&state)?, &assets, &params);
+        store_plan(&state, RunKind::PhotosImport, "Import aus der Fotos-Mediathek", None, &params, planned)
+    })
+    .await
+    .map_err(err)?
+}
+
 #[tauri::command]
 pub fn xmp_export_enabled(state: State<'_, AppState>) -> CmdResult<bool> {
     Ok(db(&state)?.query_row("SELECT value = '1' FROM setting WHERE key = 'xmp.export'", [], |r| r.get(0)).unwrap_or(false))
@@ -525,6 +569,8 @@ pub struct RunDetails {
     finished_at: Option<String>,
     log_path: Option<String>,
     summary: serde_json::Value,
+    /// Planungsparameter (z. B. Zielordner eines Imports).
+    params: serde_json::Value,
     files: usize,
     mkdirs: usize,
     counts: std::collections::BTreeMap<String, usize>,
@@ -538,11 +584,12 @@ pub struct RunDetails {
 #[tauri::command]
 pub fn run_details(state: State<'_, AppState>, run_id: i64) -> CmdResult<RunDetails> {
     let db = db(&state)?;
-    let (kind, title, status, dry_run, created_at, finished_at, log_path, summary): (String, String, String, bool, String, Option<String>, Option<String>, String) = db
+    #[allow(clippy::type_complexity)]
+    let (kind, title, status, dry_run, created_at, finished_at, log_path, summary, params): (String, String, String, bool, String, Option<String>, Option<String>, String, String) = db
         .query_row(
-            "SELECT kind, title, status, dry_run, created_at, finished_at, log_path, summary FROM run WHERE id = ?1",
+            "SELECT kind, title, status, dry_run, created_at, finished_at, log_path, summary, params FROM run WHERE id = ?1",
             [run_id],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?)),
         )
         .map_err(|_| "Lauf nicht gefunden".to_string())?;
     let mut stmt = db
@@ -579,6 +626,7 @@ pub fn run_details(state: State<'_, AppState>, run_id: i64) -> CmdResult<RunDeta
         finished_at,
         log_path,
         summary: serde_json::from_str(&summary).unwrap_or_default(),
+        params: serde_json::from_str(&params).unwrap_or_default(),
         files,
         mkdirs: total_ops - files,
         counts,
@@ -672,7 +720,7 @@ fn spawn_run(app: AppHandle, state: &State<'_, AppState>, run_id: i64, action: &
                         let _ = app.emit("run-progress", p);
                     }
                 };
-                let ex = Exec { app: &state.data_dir, cancel: &control.cancel, pause: &control.pause, progress: &progress, simulate_crash_after: None, exiftool: state.tools.exiftool.as_ref() };
+                let ex = Exec { app: &state.data_dir, cancel: &control.cancel, pause: &control.pause, progress: &progress, simulate_crash_after: None, exiftool: state.tools.exiftool.as_ref(), photos: crate::photos::system() };
                 match action {
                     "dry" => journal::dry_run(&conn, run_id, &ex),
                     "execute" => journal::execute(&conn, run_id, confirmed_files, &ex),

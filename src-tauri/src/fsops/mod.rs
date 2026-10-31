@@ -41,6 +41,8 @@ pub enum FsOpError {
     NotADirectory(PathBuf),
     #[error("Nur XMP-Sidecars dürfen geschrieben werden: {0}")]
     NotASidecar(PathBuf),
+    #[error("Export aus der Mediathek fehlgeschlagen: {0}")]
+    Export(String),
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -262,6 +264,84 @@ pub fn remove_own_sidecar(_op: OperationId, path: &Path, written: &FileHash, gua
     }
     fs::remove_file(path)?;
     Ok(())
+}
+
+/// Temp-Datei für einen Export neben dem Ziel. Versteckt und eindeutig benannt,
+/// damit sie nie mit Fotos verwechselt wird.
+fn export_tmp(dst: &Path) -> PathBuf {
+    let mut name = std::ffi::OsString::from(".");
+    name.push(dst.file_name().unwrap_or_default());
+    name.push(".sichter-import");
+    dst.with_file_name(name)
+}
+
+/// Entfernt eine eigene Temp-Datei (Rest eines abgebrochenen Exports).
+fn remove_own_tmp(tmp: &Path) {
+    if fs::symlink_metadata(tmp).is_ok_and(|m| m.is_file()) {
+        let _ = fs::remove_file(tmp);
+    }
+}
+
+/// Lässt `write` eine neue Datei erzeugen (Export aus der Fotos-Mediathek) und
+/// legt sie ohne Überschreiben als `dst` ab.
+///
+/// `write` bekommt einen Pfad, an dem noch nichts liegt, und schreibt nur dorthin.
+/// Danach wird die Datei auf `modified` datiert (Aufnahmezeitpunkt, damit der
+/// Datums-Fallback stimmt) und atomar per No-Replace-Rename an ihren Platz gelegt.
+/// Gibt den Hash der neuen Datei zurück.
+pub fn export_new_file(
+    _op: OperationId,
+    dst: &Path,
+    modified: Option<std::time::SystemTime>,
+    guard: &PathGuard,
+    write: impl FnOnce(&Path) -> std::result::Result<(), String>,
+) -> Result<FileHash> {
+    guard.check(dst)?;
+    if fs::symlink_metadata(dst).is_ok() {
+        return Err(FsOpError::DestinationExists(dst.into()));
+    }
+    match dst.parent() {
+        Some(parent) if parent.is_dir() => {}
+        _ => return Err(FsOpError::MissingParent(dst.into())),
+    }
+    let tmp = export_tmp(dst);
+    remove_own_tmp(&tmp);
+    let result = (|| -> Result<FileHash> {
+        write(&tmp).map_err(FsOpError::Export)?;
+        let file = File::options().write(true).open(&tmp).map_err(|_| FsOpError::Export("Die Mediathek hat keine Datei geliefert".into()))?;
+        if let Some(t) = modified {
+            file.set_modified(t)?;
+        }
+        file.sync_all()?;
+        drop(file);
+        let h = hash::hash_file(&tmp)?;
+        match rename::rename_noreplace(&tmp, dst) {
+            Ok(()) => Ok(h),
+            Err(rename::RenameError::AlreadyExists) => Err(FsOpError::DestinationExists(dst.into())),
+            Err(rename::RenameError::Unsupported | rename::RenameError::CrossDevice) => {
+                copy_and_verify(&tmp, dst, &h)?;
+                Ok(h)
+            }
+            Err(rename::RenameError::Io(e)) => Err(e.into()),
+        }
+    })();
+    remove_own_tmp(&tmp);
+    result
+}
+
+/// Liegt unter `dst` schon genau das, was `write` liefern würde? Für die
+/// Wiederaufnahme nach einem Absturz zwischen Export und Journal-Eintrag.
+/// Exportiert dazu in eine Temp-Datei, vergleicht und entfernt sie wieder.
+pub fn export_matches(_op: OperationId, dst: &Path, guard: &PathGuard, write: impl FnOnce(&Path) -> std::result::Result<(), String>) -> Result<Option<FileHash>> {
+    guard.check(dst)?;
+    let tmp = export_tmp(dst);
+    remove_own_tmp(&tmp);
+    let result = write(&tmp).map_err(FsOpError::Export).and_then(|()| {
+        let fresh = hash::hash_file(&tmp)?;
+        Ok((hash::hash_file(dst)? == fresh).then_some(fresh))
+    });
+    remove_own_tmp(&tmp);
+    result
 }
 
 /// Kopiert `src` nach `dst`, ohne zu überschreiben, und prüft die Kopie per Hash.
@@ -609,6 +689,36 @@ mod tests {
         remove_own_sidecar(op(), &xmp, &hash_bytes(b"v2"), &g).unwrap();
         assert!(!xmp.exists());
         assert!(matches!(write_sidecar(op(), &xmp, b"v1", None, &PathGuard::new([dir.path()])), Err(FsOpError::Locked(_))));
+    }
+
+    #[test]
+    fn export_never_overwrites_and_leaves_no_temp() {
+        let dir = tempfile::tempdir().unwrap();
+        let g = PathGuard::default();
+        let dst = dir.path().join("IMG_1.HEIC");
+        let when = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+        let h = export_new_file(op(), &dst, Some(when), &g, |p| std::fs::write(p, b"heic").map_err(|e| e.to_string())).unwrap();
+        assert_eq!(h, hash_bytes(b"heic"));
+        assert_eq!(std::fs::metadata(&dst).unwrap().modified().unwrap(), when);
+        // Ziel belegt: nichts überschrieben, Schreiber gar nicht erst aufgerufen.
+        let err = export_new_file(op(), &dst, None, &g, |_| panic!("darf nicht schreiben")).unwrap_err();
+        assert!(matches!(err, FsOpError::DestinationExists(_)));
+        // Fehlschlag der Mediathek: keine Reste.
+        let other = dir.path().join("IMG_2.HEIC");
+        let err = export_new_file(op(), &other, None, &g, |p| {
+            std::fs::write(p, b"halb").unwrap();
+            Err("iCloud nicht erreichbar".into())
+        })
+        .unwrap_err();
+        assert!(matches!(err, FsOpError::Export(_)));
+        assert!(!other.exists());
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1, "keine Temp-Datei übrig");
+        // Vergleich für die Wiederaufnahme.
+        let w = |bytes: &'static [u8]| move |p: &Path| std::fs::write(p, bytes).map_err(|e| e.to_string());
+        assert_eq!(export_matches(op(), &dst, &g, w(b"heic")).unwrap(), Some(h));
+        assert_eq!(export_matches(op(), &dst, &g, w(b"anders")).unwrap(), None);
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
+        assert!(matches!(export_new_file(op(), &other, None, &PathGuard::new([dir.path()]), w(b"x")), Err(FsOpError::Locked(_))));
     }
 
     #[test]

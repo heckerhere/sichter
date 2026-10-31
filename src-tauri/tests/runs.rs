@@ -109,7 +109,7 @@ impl Env {
 
     fn exec_crash<T>(&self, crash: Option<usize>, f: impl FnOnce(&Exec) -> T) -> T {
         let (cancel, pause) = (AtomicBool::new(false), AtomicBool::new(false));
-        f(&Exec { app: &self.app, cancel: &cancel, pause: &pause, progress: &|_| {}, simulate_crash_after: crash, exiftool: self.tools.exiftool.as_ref() })
+        f(&Exec { app: &self.app, cancel: &cancel, pause: &pause, progress: &|_| {}, simulate_crash_after: crash, exiftool: self.tools.exiftool.as_ref(), photos: None })
     }
 
     fn one<T: rusqlite::types::FromSql>(&self, sql: &str) -> T {
@@ -496,7 +496,7 @@ fn cancel_stops_after_current_group_and_run_can_be_resumed() {
             cancel.store(true, std::sync::atomic::Ordering::SeqCst);
         }
     };
-    let ex = Exec { app: &env.app, cancel: &cancel, pause: &pause, progress: &progress, simulate_crash_after: None, exiftool: env.tools.exiftool.as_ref() };
+    let ex = Exec { app: &env.app, cancel: &cancel, pause: &pause, progress: &progress, simulate_crash_after: None, exiftool: env.tools.exiftool.as_ref(), photos: None };
     let first = journal::execute(&env.conn, run, files, &ex).unwrap();
     assert!(first.cancelled && first.done < files, "{first:?}");
     assert_eq!(env.one::<String>(&format!("SELECT status FROM run WHERE id = {run}")), "aborted");

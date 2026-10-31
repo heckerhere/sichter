@@ -73,6 +73,18 @@ export const useLibraryStore = defineStore("library", () => {
     return results.filter((r) => r.error).map((r) => `${r.path}: ${r.error}`);
   }
 
+  /** Nimmt einen Ordner in die Bibliothek auf und scannt ihn. Liegt er schon in
+   *  einem Quellordner, wird dieser neu gescannt. */
+  async function includeFolder(path: string): Promise<string[]> {
+    await refresh();
+    const inside = roots.value.find((r) => path === r.path || path.startsWith(r.path.endsWith("/") ? r.path : `${r.path}/`));
+    if (inside) {
+      await startScan([inside.id]);
+      return error.value ? [error.value] : [];
+    }
+    return addRoots([path]);
+  }
+
   async function setLocked(id: number, locked: boolean) {
     await api.setRootLocked(id, locked);
     await refresh();
@@ -96,5 +108,5 @@ export const useLibraryStore = defineStore("library", () => {
 
   const cancelScan = () => api.cancelScan();
 
-  return { roots, groups, unhandled, stats, scanning, progress, lastReport, error, rootPath, init, refresh, addRoots, removeRoot, setLocked, startScan, cancelScan };
+  return { roots, groups, unhandled, stats, scanning, progress, lastReport, error, rootPath, init, refresh, addRoots, includeFolder, removeRoot, setLocked, startScan, cancelScan };
 });

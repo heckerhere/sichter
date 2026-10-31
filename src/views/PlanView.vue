@@ -6,12 +6,14 @@ import { ask } from "@tauri-apps/plugin-dialog";
 import { api, type ConflictKind, type RunDetails, type RunReport } from "../api";
 import { useAppStore } from "../stores/app";
 import { useRunsStore } from "../stores/runs";
+import { useLibraryStore } from "../stores/library";
 import { formatBytes, formatInt } from "../format";
 
 const route = useRoute();
 const router = useRouter();
 const app = useAppStore();
 const runs = useRunsStore();
+const lib = useLibraryStore();
 
 const runId = computed(() => Number(route.params.id));
 const details = ref<RunDetails | null>(null);
@@ -40,12 +42,22 @@ watch(
     if (f.status === "ok") report.value = { action: f.action, report: f.report };
     else error.value = f.message;
     await load();
+    // Nach dem Import den Zielordner gleich in die Bibliothek aufnehmen.
+    if (f.status === "ok" && f.action === "execute" && isImport.value && f.report.done > 0) await scanImportTarget();
   },
 );
 
 const running = computed(() => runs.state?.running === runId.value);
 const progress = computed(() => (runs.progress?.run_id === runId.value ? runs.progress : null));
 const isTrash = computed(() => details.value?.kind.endsWith("to_trash") ?? false);
+const isImport = computed(() => details.value?.kind === "photos_import");
+const importTarget = computed(() => (isImport.value ? String(details.value?.params.target ?? "") : ""));
+
+async function scanImportTarget() {
+  const errors = await lib.includeFolder(importTarget.value);
+  if (errors.length) error.value = errors.join("\n");
+  else await router.push("/");
+}
 const trashFiles = computed(() => details.value?.ops.filter((o) => o.op === "trash").map((o) => o.src!) ?? []);
 const s = computed(() => details.value?.summary);
 const spaceProblem = computed(() => s.value && s.value.free_bytes !== null && s.value.bytes_to_copy > s.value.free_bytes);
@@ -64,19 +76,19 @@ const conflictCounts = computed(() => {
 
 /** Gemeinsamer Pfadanfang, damit Bäume kurz bleiben. */
 const prefix = computed(() => {
-  const paths = [...Object.keys(details.value?.before ?? {}), ...Object.keys(details.value?.after ?? {})];
+  const paths = [...(isImport.value ? [] : Object.keys(details.value?.before ?? {})), ...Object.keys(details.value?.after ?? {})];
   if (!paths.length) return "";
   let p = paths[0];
   for (const x of paths) while (!x.startsWith(p)) p = p.slice(0, p.lastIndexOf("/"));
   return p;
 });
-const rel = (path: string | null) => (path ? path.slice(prefix.value.length).replace(/^\//, "") || "." : "");
+const rel = (path: string | null) => (path ? (path.startsWith(prefix.value) ? path.slice(prefix.value.length).replace(/^\//, "") || "." : path) : "");
 const tree = (map: Record<string, number>) =>
   Object.entries(map)
     .map(([dir, n]) => ({ dir: rel(dir), n }))
     .sort((a, b) => a.dir.localeCompare(b.dir, "de", { numeric: true }));
 
-const opLabel = { mkdir: "Ordner anlegen", move: "Verschieben", copy: "Kopieren", trash: "Papierkorb", xmp: "XMP schreiben" };
+const opLabel = { mkdir: "Ordner anlegen", move: "Verschieben", copy: "Kopieren", trash: "Papierkorb", xmp: "XMP schreiben", export: "Importieren" };
 const statusLabel = { planned: "geplant", running: "läuft", done: "ausgeführt", aborted: "abgebrochen", undone: "rückgängig gemacht" };
 
 async function act(f: () => Promise<unknown>) {
@@ -99,6 +111,14 @@ async function execute() {
   const d = details.value!;
   if (isTrash.value) {
     showTrashConfirm.value = true;
+    return;
+  }
+  if (isImport.value) {
+    const ok = await ask(
+      `${formatInt(d.files)} Originale (${formatBytes(s.value?.bytes ?? 0)}) werden aus der Fotos-Mediathek nach „${importTarget.value}“ kopiert, ${formatInt(d.mkdirs)} Ordner angelegt. Die Mediathek bleibt unverändert, es wird nichts überschrieben. Bei Originalen, die nur in iCloud liegen, kann das dauern.`,
+      { title: "Import ausführen", kind: "warning", okLabel: `${formatInt(d.files)} Dateien importieren`, cancelLabel: "Abbrechen" },
+    );
+    if (ok) await act(() => api.runExecute(runId.value, d.files));
     return;
   }
   const verb = d.kind === "reorganize" && d.title.includes("Kopieren") ? "kopiert" : "verschoben";
@@ -172,7 +192,11 @@ async function disableDryRun() {
           <dt class="text-xs text-stone-500">Neue Ordner</dt>
           <dd class="text-lg font-semibold tabular-nums">{{ formatInt(details.mkdirs) }}</dd>
         </div>
-        <div class="rounded-lg border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900">
+        <div v-if="isImport" class="rounded-lg border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900">
+          <dt class="text-xs text-stone-500">Schon importiert / ohne Original</dt>
+          <dd class="text-lg font-semibold tabular-nums">{{ formatInt(s.already_imported ?? 0) }} / {{ formatInt(s.not_exportable ?? 0) }}</dd>
+        </div>
+        <div v-else class="rounded-lg border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900">
           <dt class="text-xs text-stone-500">Schon am Ziel / übersprungen</dt>
           <dd class="text-lg font-semibold tabular-nums">{{ formatInt(s.in_place) }} / {{ formatInt(s.skipped_unconfirmed + s.conflicts.filter((c) => c.kind !== "renamed").length) }}</dd>
         </div>
@@ -202,8 +226,10 @@ async function disableDryRun() {
       </div>
 
       <!-- Vorher / Nachher -->
-      <div v-if="!isTrash" class="mt-4 grid gap-4 md:grid-cols-2">
-        <div v-for="(side, i) in [{ label: 'Vorher: Dateien verlassen', map: details.before }, { label: 'Nachher: Dateien kommen an', map: details.after }]" :key="i" class="rounded-lg border border-stone-200 bg-white dark:border-stone-800 dark:bg-stone-900">
+      <div v-if="!isTrash" class="mt-4 grid gap-4" :class="!isImport && 'md:grid-cols-2'">
+        <div
+          v-for="(side, i) in isImport ? [{ label: 'Aus der Fotos-Mediathek kommen an', map: details.after }] : [{ label: 'Vorher: Dateien verlassen', map: details.before }, { label: 'Nachher: Dateien kommen an', map: details.after }]"
+          :key="i" class="rounded-lg border border-stone-200 bg-white dark:border-stone-800 dark:bg-stone-900">
           <h2 class="border-b border-stone-100 px-4 py-2 text-xs font-medium text-stone-500 dark:border-stone-800">{{ side.label }}</h2>
           <ul class="max-h-64 overflow-y-auto px-4 py-2 font-mono text-[11px]">
             <li v-for="t in tree(side.map)" :key="t.dir" class="flex gap-2 py-0.5">
@@ -263,6 +289,14 @@ async function disableDryRun() {
           <button v-if="details.status === 'planned'" class="ml-auto text-stone-500 hover:text-red-600" @click="discard">Plan verwerfen</button>
         </template>
         <template v-else-if="!running && details.status === 'done'">
+          <button
+            v-if="isImport"
+            :disabled="lib.scanning"
+            class="rounded-md bg-stone-900 px-3 py-1.5 text-white hover:bg-stone-700 disabled:opacity-40 dark:bg-stone-100 dark:text-stone-900"
+            @click="scanImportTarget"
+          >
+            Zielordner scannen
+          </button>
           <button class="rounded-md border border-stone-300 px-3 py-1.5 hover:bg-stone-100 dark:border-stone-700 dark:hover:bg-stone-800" @click="undo">Rückgängig machen …</button>
         </template>
         <button v-if="details.log_path" class="text-stone-500 underline-offset-2 hover:underline" @click="openLog">Protokoll öffnen</button>

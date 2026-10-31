@@ -6,6 +6,7 @@ pub mod fsops;
 pub mod hash;
 pub mod journal;
 pub mod meta;
+pub mod photos;
 pub mod plan;
 pub mod scan;
 pub mod storage;
@@ -101,6 +102,10 @@ pub fn run() {
             commands::plan_empty_dirs,
             commands::set_root_locked,
             commands::plan_xmp_export,
+            commands::photos_status,
+            commands::photos_request_access,
+            commands::photos_open_privacy_settings,
+            commands::plan_photos_import,
             commands::xmp_export_enabled,
             commands::set_xmp_export_enabled,
             commands::cache_info,

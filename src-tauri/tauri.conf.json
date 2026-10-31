@@ -47,7 +47,8 @@
     "macOS": {
       "minimumSystemVersion": "12.0",
       "signingIdentity": null,
-      "hardenedRuntime": true
+      "hardenedRuntime": true,
+      "entitlements": "Entitlements.plist"
     },
     "externalBin": [
       "binaries/ffmpeg",

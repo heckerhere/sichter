@@ -266,13 +266,28 @@ export interface PlanSummary {
   conflicts: PlanConflict[];
   bytes_to_copy: number;
   free_bytes: number | null;
+  already_imported?: number;
+  not_exportable?: number;
+}
+
+export type PhotosAccess = "not_determined" | "restricted" | "denied" | "authorized" | "limited" | "unsupported";
+
+export interface PhotosStatus {
+  supported: boolean;
+  access: PhotosAccess;
+}
+
+export interface PhotosImportParams {
+  target: string;
+  include_hidden: boolean;
+  download_originals: boolean;
 }
 
 export type RunStatus = "planned" | "running" | "done" | "aborted" | "undone";
 
 export interface RunOp {
   seq: number;
-  op: "mkdir" | "move" | "copy" | "trash" | "xmp";
+  op: "mkdir" | "move" | "copy" | "trash" | "xmp" | "export";
   src: string | null;
   dst: string | null;
   size: number | null;
@@ -291,6 +306,7 @@ export interface RunDetails {
   finished_at: string | null;
   log_path: string | null;
   summary: PlanSummary;
+  params: Record<string, unknown>;
   files: number;
   mkdirs: number;
   counts: Record<string, number>;
@@ -402,6 +418,10 @@ export const api = {
   planXmpExport: () => invoke<number>("plan_xmp_export"),
   xmpExportEnabled: () => invoke<boolean>("xmp_export_enabled"),
   setXmpExportEnabled: (enabled: boolean) => invoke<void>("set_xmp_export_enabled", { enabled }),
+  photosStatus: () => invoke<PhotosStatus>("photos_status"),
+  photosRequestAccess: () => invoke<PhotosAccess>("photos_request_access"),
+  photosOpenPrivacySettings: () => invoke<void>("photos_open_privacy_settings"),
+  planPhotosImport: (params: PhotosImportParams) => invoke<number>("plan_photos_import", { params }),
   planEmptyDirs: () => invoke<number>("plan_empty_dirs"),
   setRootLocked: (id: number, locked: boolean) => invoke<void>("set_root_locked", { id, locked }),
   cacheInfo: () => invoke<{ data_dir: string; thumbs: number; previews: number; logs: number }>("cache_info"),
