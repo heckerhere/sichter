@@ -213,7 +213,11 @@ mod tests {
         let p = ImportParams { target: dir.path().display().to_string(), include_hidden: false, download_originals: true };
         let (ops, s) = plan_photos_import(&conn, &assets, &p).unwrap();
         let dsts: Vec<String> =
-            ops.iter().filter(|o| o.op == Op::Export).map(|o| o.dst.as_ref().unwrap().strip_prefix(dir.path()).unwrap().display().to_string()).collect();
+            ops.iter()
+                .filter(|o| o.op == Op::Export)
+                // Plattformneutral vergleichen (Windows trennt mit "\\").
+                .map(|o| o.dst.as_ref().unwrap().strip_prefix(dir.path()).unwrap().components().map(|c| c.as_os_str().to_string_lossy()).collect::<Vec<_>>().join("/"))
+                .collect();
         let day = chrono::Local.timestamp_opt(noon, 0).unwrap().format("%Y/%Y-%m-%d").to_string();
         assert_eq!(
             dsts,

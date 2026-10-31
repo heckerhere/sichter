@@ -218,7 +218,8 @@ mod tests {
         for tool in [tools.ffmpeg, tools.ffprobe] {
             let tool = tool.expect("ffmpeg/ffprobe nicht gefunden");
             let version = ffmpeg_style_version(&tool).unwrap();
-            assert!(version.chars().next().is_some_and(|c| c.is_ascii_digit() || c == 'n'), "{version}");
+            // "8.1.3", Git-Builds "n8.1" bzw. Nightlies (BtbN, Windows) "N-117…".
+            assert!(version.chars().next().is_some_and(|c| c.is_ascii_digit() || c == 'n' || c == 'N'), "{version}");
         }
     }
 }

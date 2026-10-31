@@ -327,7 +327,7 @@ Jede Phase endet mit lauffähigem Stand, Tests, abgehakter Checkliste (Abschnitt
 - [ ] Windows-Sidecars (exiftool, ffmpeg, ffprobe) — später auf Windows; Skript `scripts/fetch-sidecars.ps1` vorbereitet, ungeprüft
 - [ ] Lange Pfade und reservierte Namen — reservierte Namen erledigt und getestet, `\\?\`-Präfix implementiert; unter Windows noch ungeprüft
 - [ ] Papierkorb unter Windows testen — später auf Windows
-- [ ] Testsuite auf Windows grün — später auf Windows; CI-Job `windows-latest` vorbereitet
+- [ ] Testsuite auf Windows grün — später auf Windows; CI-Job `windows-latest` vorbereitet. Stand 2026-10-31: Build und Sidecars laufen in der CI, die exiftool-Tests hängen dort (`-stay_open` mit `exiftool.exe`), Job daher vorerst nicht blockierend
 - [x] Gesperrte Ordner
 - [x] Leere-Ordner-Bereinigung mit Bestätigung
 - [x] Einstellungsseite
