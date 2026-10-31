@@ -68,7 +68,17 @@ If you denied access, enable it in **System Settings → Privacy & Security → 
 
 ## Installation
 
-There are no signed releases yet. Build it yourself (see below) or use the `CI` workflow's "bundle" option to get unsigned installers. Unsigned apps must be opened via right-click → *Open* the first time.
+Download the latest `Sichter_x.y.z_universal.dmg` from [Releases](../../releases) (runs on Apple Silicon and Intel Macs, macOS 12 or later), open it and drag Sichter into *Applications*.
+
+The app is not yet notarized by Apple, so macOS blocks it on the first launch:
+
+1. Open Sichter once. macOS says it cannot be opened. Click *Done*.
+2. Go to **System Settings → Privacy & Security**, scroll down and click **Open Anyway** next to the message about Sichter.
+3. Confirm with your password. From then on Sichter starts normally.
+
+Alternatively, in Terminal: `xattr -dr com.apple.quarantine /Applications/Sichter.app`
+
+You can also build it yourself (see below).
 
 ## Development (macOS)
 
